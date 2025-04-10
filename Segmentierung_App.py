@@ -87,12 +87,12 @@ labels_dict = {
      '116': {1: 'Becken'}
 }
 
-# Default segment parameters - quite light smoothing
+# Default segment parameters -  smoothing for labelmap just removes salt-pepper noise, taubin maintains volume with  light smoothing-params to remove some steps\artifacts 
 default_segment_params = {
-    'smoothing': 0.3, 
+    'smoothing': 0.05, 
     'mesh_smoothing_method': 'taubin', 
-    'mesh_smoothing_iterations': 250, 
-    'mesh_smoothing_factor': 0.1
+    'mesh_smoothing_iterations': 35, 
+    'mesh_smoothing_factor': 0.05
 }
 
 # Initialize segment_params with defaults for all labels in labels_dict
