@@ -229,6 +229,7 @@ def process_with_parameters(input_file, output_prefix, segment_params, additiona
     nii_data = nii_img.get_fdata()
     spacing = nii_img.header.get_zooms()
     
+    
     for label, params in segment_params.items():
         volume_smoothing = params.get('smoothing', 1.0)
         output_label = params.get('label', f"segment_{label}")
@@ -255,6 +256,10 @@ def process_with_parameters(input_file, output_prefix, segment_params, additiona
             if hole_stats["hole_count"] > 0:
                 suggested_fill_size = hole_stats["largest_hole"] * 1.1  # 10% larger than largest hole
                 print(f"Suggested fill_holes value: {suggested_fill_size:.2f}")
+        #This should fix the shifting issue
+        affine = nii_img.affine  # Get the transform matrix
+        verts = np.hstack([verts, np.ones((verts.shape[0], 1))])  # Add homogeneous coordinate
+        verts = (affine @ verts.T).T[:, :3]  # Apply affine and drop homogeneous coord
         
         # Optionally, use the suggested value
         # fill_holes = suggested_fill_size
