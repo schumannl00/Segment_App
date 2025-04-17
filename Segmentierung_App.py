@@ -571,23 +571,18 @@ class ParameterGUI:
                     if lower >= upper:
                         messagebox.showerror("Error", "Upper bound must be greater than lower bound")
                         return
-                        
-                except ValueError:
-                    messagebox.showerror("Error", "Lower and upper bounds must be integers")
-                    return
-            else:
-                # If Z-cut is not enabled, use full range
-                nii = load(self.nii_path)
-                lower = 0
-                upper = nii.shape[2]
-            
-            try:
+                    
+                    for folder in os.listdir(interference_path):
+                        zcut(os.path.join(interference_path,folder),lower,upper)
                 
-                for folder in os.listdir(interference_path):
-                    zcut(os.path.join(interference_path,folder),lower,upper)
-            except Exception as e:
-                messagebox.showerror("Error", f"An error occurred during processing:\n{str(e)}")
-                # Reset working directory if changed
+                except Exception as e:
+                    messagebox.showerror("The NIFTIs cannot be cut along the z-axis, str({e}).")
+                    return
+           
+            
+                
+                    
+           
     
             file_mapping = {}
             for i, folder in enumerate(os.listdir(interference_path)):
