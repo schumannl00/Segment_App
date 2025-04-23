@@ -208,7 +208,7 @@ def convert_nifti_to_stls(input_file, output_prefix, label_map=None, smoothing_f
 
 def convert_to_LPS(vertices):
     vertices[:, 1]= -vertices[:, 1]
-
+    vertices[:, 0] *=-1.0
     return vertices
     
 def process_with_parameters(input_file, output_prefix, segment_params, additional_name=None, fill_holes=0):
@@ -231,10 +231,10 @@ def process_with_parameters(input_file, output_prefix, segment_params, additiona
     
     
     for label, params in segment_params.items():
-        volume_smoothing = params.get('smoothing', 1.0)
+        volume_smoothing = params.get('smoothing', 0)
         output_label = params.get('label', f"segment_{label}")
         mesh_method = params.get('mesh_smoothing_method', 'taubin')
-        mesh_iterations = params.get('mesh_smoothing_iterations', 100)
+        mesh_iterations = params.get('mesh_smoothing_iterations', 35)
         mesh_factor = params.get('mesh_smoothing_factor', 0.1)
         
         # Volume smoothing
@@ -246,7 +246,7 @@ def process_with_parameters(input_file, output_prefix, segment_params, additiona
         binary_smooth = smoothed_segment > 0.5
         
         # Generate surface mesh
-        verts, faces, _, _ = measure.marching_cubes(binary_smooth, spacing=spacing)
+        verts, faces, _, _ = measure.marching_cubes(binary_smooth, level=0.5)
         
         if fill_holes > 0:
             print(f"Analyzing holes for segment {label} ('{output_label}'):")
@@ -260,7 +260,7 @@ def process_with_parameters(input_file, output_prefix, segment_params, additiona
         affine = nii_img.affine  # Get the transform matrix
         verts = np.hstack([verts, np.ones((verts.shape[0], 1))])  # Add homogeneous coordinate
         verts = (affine @ verts.T).T[:, :3]  # Apply affine and drop homogeneous coord
-        
+        convert_to_LPS(verts)
         # Optionally, use the suggested value
         # fill_holes = suggested_fill_size
         # Apply mesh smoothing
@@ -275,7 +275,7 @@ def process_with_parameters(input_file, output_prefix, segment_params, additiona
             verts, faces = fill_holes_pyvista(verts, faces, hole_size=fill_holes)
             print(f"Holes filled for segment {label}")
         
-        verts=convert_to_LPS(verts)
+        
         # Create and save STL
         stl_mesh = mesh.Mesh(np.zeros(faces.shape[0], dtype=mesh.Mesh.dtype))
         for i, face in enumerate(faces):
@@ -294,7 +294,7 @@ def process_with_parameters(input_file, output_prefix, segment_params, additiona
 segment_params = {
     1: {
         'label': "Fibula",
-        'smoothing': 0.3,  # Less volume smoothing
+        'smoothing': 0.1,  # Less volume smoothing
         'mesh_smoothing_method': 'taubin',
         'mesh_smoothing_iterations': 400,  # Fewer iterations
         'mesh_smoothing_factor': 0.1  # Gentler smoothing
@@ -321,18 +321,15 @@ def process_directory( input_dir, output_root_dir,segment_params, fill_holes=0, 
                 print(file_name)
                 input_file = os.path.join(input_dir, file_name)
                 # Extract the number from the file name (e.g., "Syn_071.nii.gz" -> "071")
-                file_number = file_name.split('_')[1].split('.')[0]
+                file_number = file_name.split('_')[1].split('.')[0].split("-")[0]
               
                 output_dir = os.path.join(output_root_dir, f"STL{file_number}")
-                if split and file_mapping:
-                    for original_name, mapping_data in file_mapping.items():
-                        if mapping_data['new_filename'] == file_name.replace(".nii.gz", "_0000.nii.gz"):
-                            if 'links' in original_name.lower():
-                                output_dir += "_links"
-                            elif 'rechts' in original_name.lower():
-                                output_dir+= "_rechts"
-                            break
-                  
+                if split:
+                    side = file_name.split('_')[1].split('.')[0].split("-")[1]
+                    if side == "links":
+                        output_dir+= "_links"
+                    elif side == "rechts":
+                        output_dir += "_rechts"
                 os.makedirs(output_dir, exist_ok=True)
                 
                 # Call convert_nifti_to_stls for each file
@@ -340,16 +337,4 @@ def process_directory( input_dir, output_root_dir,segment_params, fill_holes=0, 
                 process_with_parameters(input_file, output_dir, segment_params, additional_name=file_number,fill_holes=fill_holes)
 
 
-
-shoulder_params={
-     1: {
-        'label': "Becken",
-        'smoothing': 0.1,  # Less volume smoothing
-        'mesh_smoothing_method': 'taubin',
-        'mesh_smoothing_iterations': 20,  # Fewer iterations
-        'mesh_smoothing_factor': 0.005  # Gentler smoothing
-    }
-
-}
-#process_directory(r"E:\becken\test\NIFTI",r"E:\becken\test\stl",shoulder_params)
 
