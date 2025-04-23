@@ -28,6 +28,9 @@ from transform_DICOM_to_nifti import DICOM_splitter, raw_data_to_nifti, nifti_re
 import shutil
 from leg_seperator import masking, zcut
 from multiprocessed import raw_data_to_nifti_parallel
+import ttkbootstrap as tb
+from ttkbootstrap.constants import *
+
 id_dict = {
     '111': {
         'body_part': 'Sprunggelenk_gesund',
@@ -120,9 +123,8 @@ class ParameterGUI:
     def __init__(self, root):
         self.root = root
         self.root.title("Parameter Input GUI for nnUNet segmentation")
-        self.root.geometry("900x600")
-        self.root.resizable(True, True)
-        
+        self.root.geometry("1000x650")
+        self.style = tb.Style(theme='superhero') 
          # Create a queue for thread communication
         self.progress_queue = queue.Queue()
         
@@ -133,49 +135,61 @@ class ParameterGUI:
         self.poll_progress_queue()
 
         # Create main frame with padding
-        main_frame = ttk.Frame(root, padding="20")
+        main_frame = tb.Frame(root, padding="20")
         main_frame.pack(fill=tk.BOTH, expand=True)
-        
+        main_frame.columnconfigure(1, weight=1)
+
+        path_frame= tb.LabelFrame(main_frame, text="Input/Output paths", padding = "10 ", bootstyle= INFO)
+        path_frame.grid(row=0, column=0, columnspan=6, sticky = EW, pady=(0,10))
+        path_frame.columnconfigure(1, weight=1)
+      
+      
         # Row 1: Input Path with drag and drop
-        ttk.Label(main_frame, text="Input Path:").grid(row=0, column=0, sticky=tk.W, pady=(0, 10))
-        input_frame = ttk.Frame(main_frame)
-        input_frame.grid(row=0, column=1, sticky=(tk.W, tk.E), pady=(0, 10))
+
+        tb.Label(path_frame, text="Input Path:", bootstyle= PRIMARY).grid(row=0, column=0, sticky=W, pady=5, padx= 5)
         self.input_path = tk.StringVar()
-        self.input_entry = ttk.Entry(input_frame, textvariable=self.input_path, width=40)
-        self.input_entry.pack(side=tk.LEFT, fill=tk.X, expand=True)
+        input_frame = tb.Frame(path_frame)
+        input_frame.grid(row=0, column=1, sticky=EW, pady=5, padx=5)
+        input_frame.columnconfigure(0, weight=1)
+        self.input_entry = tb.Entry(input_frame, textvariable=self.input_path, width=60)
+        self.input_entry.grid(row=0, column=0, sticky = EW)
         self.input_entry.drop_target_register(DND_FILES)
         self.input_entry.dnd_bind('<<Drop>>', lambda e: self.drop_input_file(e, self.input_entry)) 
-        input_button = ttk.Button(input_frame, text="Browse", command=self.browse_input_path)
-        input_button.pack(side=tk.RIGHT, padx=(5, 0))
+        input_button = tb.Button(input_frame, text="Browse", command=self.browse_input_path, bootstyle = "primary")
+        input_button.grid(row=0, column=1,  padx=(5, 0))
 
         # Row 2: Output Paths (STL and Labelmaps)
-        ttk.Label(main_frame, text="STL Output Path:").grid(row=1, column=0, sticky=tk.W, pady=(0, 10))
-        stl_output_frame = ttk.Frame(main_frame)
-        stl_output_frame.grid(row=1, column=1, sticky=(tk.W, tk.E), pady=(0, 10))
+        tb.Label(path_frame, text="STL Output Path:").grid(row=1, column=0, sticky=W, pady=5, padx=5 )
         self.stl_output_path = tk.StringVar()
-        self.stl_output_entry = ttk.Entry(stl_output_frame, textvariable=self.stl_output_path, width=40)
-        self.stl_output_entry.pack(side=tk.LEFT, fill=tk.X, expand=True)
+        stl_output_frame = tb.Frame(path_frame)
+        stl_output_frame.grid(row=1, column=1, sticky=EW, pady=5, padx=5)
+        stl_output_frame.columnconfigure(0, weight=1)
+        self.stl_output_entry = tb.Entry(stl_output_frame, textvariable=self.stl_output_path, width=60)
+        self.stl_output_entry.grid(row=0, column = 0, sticky = EW)
         self.stl_output_entry.drop_target_register(DND_FILES)
         self.stl_output_entry.dnd_bind('<<Drop>>', lambda e: self.drop_output_files(e, self.stl_output_entry))
-        stl_output_button = ttk.Button(stl_output_frame, text="Browse", command=self.browse_stl_output)
-        stl_output_button.pack(side=tk.RIGHT, padx=(5, 0))
+        stl_output_button = tb.Button(stl_output_frame, text="Browse", command=self.browse_stl_output, bootstyle= "secondary")
+        stl_output_button.grid(row=0, column = 1, padx= (5,0 ))
 
-        ttk.Label(main_frame, text="nnUNet Labelmap Output Path:").grid(row=2, column=0, sticky=tk.W, pady=(0, 10))
-        labelmap_output_frame = ttk.Frame(main_frame)
-        labelmap_output_frame.grid(row=2, column=1, sticky=(tk.W, tk.E), pady=(0, 10))
+        tb.Label(path_frame, text="nnUNet Labelmap Output Path:").grid(row=2, column=0, sticky=W, pady=(0, 10))
         self.labelmap_output_path = tk.StringVar()
-        self.labelmap_output_entry = ttk.Entry(labelmap_output_frame, textvariable=self.labelmap_output_path, width=40)
-        self.labelmap_output_entry.pack(side=tk.LEFT, fill=tk.X, expand=True)
+        labelmap_output_frame = tb.Frame(path_frame)
+        labelmap_output_frame.grid(row=2, column=1, sticky=EW, pady=5, padx= 5)
+        labelmap_output_frame.columnconfigure(0, weight=1)
+        self.labelmap_output_entry = ttk.Entry(labelmap_output_frame, textvariable=self.labelmap_output_path, width=60)
+        self.labelmap_output_entry.grid(row=0, column =0, sticky = EW)
         self.labelmap_output_entry.drop_target_register(DND_FILES)
         self.labelmap_output_entry.dnd_bind('<<Drop>>',  lambda e: self.drop_output_files(e, self.labelmap_output_entry))
-        labelmap_output_button = ttk.Button(labelmap_output_frame, text="Browse", command=self.browse_labelmap_output)
-        labelmap_output_button.pack(side=tk.RIGHT, padx=(5, 0))
+        labelmap_output_button = ttk.Button(labelmap_output_frame, text="Browse", command=self.browse_labelmap_output, bootstyle= "secondary")
+        labelmap_output_button.grid(row=0, column= 1, padx= (5,0))
 
         # Row 3: Scan Indicators (as set of strings)
-        indicator_frame = ttk.Frame(main_frame)
-        indicator_frame.grid(row=3, column=0, columnspan=2, sticky=(tk.W, tk.E), pady=(0, 10))
+        indicator_frame = tb.LabelFrame(main_frame, text= "Filter out specific scan", padding = "10", bootstyle= WARNING)
+        indicator_frame.grid(row=1, column=0, columnspan=6, sticky=EW, pady=(0,10))
+        indicator_frame.columnconfigure(0, weight=1)
 
-        ttk.Label(indicator_frame, text="Scan Indicators:").pack(side=tk.LEFT, padx=(0, 5))
+
+        tb.Label(indicator_frame, text="Scan Indicators:").grid(row=0, column =0, sticky = W, pady=5, padx = 5)
 
         # Create a StringVar to store the selected indicators
         self.scan_indicators = tk.StringVar()
@@ -183,134 +197,155 @@ class ParameterGUI:
         # Create a set to store the selected indicators
         self.selected_indicators = set()
 
+        indicator_controls_frame = tb.Frame(indicator_frame)
+        indicator_controls_frame.grid(row=0, column=1, sticky=EW, padx=5, pady=5)
+        # *** Use grid inside indicator_controls_frame ***
+        indicator_controls_frame.columnconfigure(0, weight=1) # Make menubutton expand
         # menubutton
-        self.indicators_menu = ttk.Menubutton(indicator_frame, text="Select Indicators", width=40)
-        self.indicators_menu.pack(side=tk.LEFT, fill=tk.X, expand=True)
-
+        self.indicators_menu = ttk.Menubutton(indicator_controls_frame, text="Select Indicators", width=60)
+        self.indicators_menu.grid(row=0, column=0, sticky=EW, padx=(0, 5))
         #dropdown menu
         self.dropdown_menu = tk.Menu(self.indicators_menu, tearoff=0)
         self.indicators_menu["menu"] = self.dropdown_menu
 
         # Custom Indicator Button
-        self.add_custom_button = ttk.Button(
-            indicator_frame, 
+        self.add_custom_button = tb.Button(
+            indicator_controls_frame, 
             text="+", 
             width=3, 
-            command=self.add_custom_indicator)
+            command=self.add_custom_indicator, bootstyle= "info")
         
-        self.add_custom_button.pack(side=tk.LEFT, padx=(5, 0))
+        self.add_custom_button.grid(row=0, column=1, padx=(5, 5))
 
 
         # Checkbox for using default indicators
         self.use_default_indicators = tk.BooleanVar(value=False)
-        self.default_indicators_check = ttk.Checkbutton(
-            indicator_frame, 
+        self.default_indicators_check = tb.Checkbutton(
+            indicator_controls_frame, 
             text="Don't filter", 
             variable=self.use_default_indicators,
-            command=self.toggle_indicators_entry
+            command=self.toggle_indicators_entry, bootstyle= "danger"
         )
-        self.default_indicators_check.pack(side=tk.RIGHT, padx=(5, 0))
+        self.default_indicators_check.grid(row=0, column=2, padx=(10, 10))
+
 
        
         
 
         # Row 4: Select ID and Configurations
-        ttk.Label(main_frame, text="ID:").grid(row=4, column=0, sticky=tk.W, pady=(0, 10))
+
+        config_group_frame = tb.LabelFrame(main_frame, text="Details for the segmentation", padding = "10", bootstyle= INFO)
+        config_group_frame.grid(row=2, column=0, columnspan=1, sticky=EW, pady=(0, 10)) # Use grid in main_frame
+        # Configure grid columns *inside* the LabelFrame
+        config_group_frame.columnconfigure(1, weight=1)
+
+
+
+        tb.Label(config_group_frame, text="ID:").grid(row=0, column=0, sticky=W, pady=5, padx = 5)
         self.id_var = tk.StringVar()
         self.id_var.trace_add('write', self.on_key_change)
-        id_combobox = ttk.Combobox(main_frame, textvariable=self.id_var, width=40)
+        id_combobox = ttk.Combobox(config_group_frame, textvariable=self.id_var, width=40)
         id_combobox['values'] = list(id_dict.keys())
-        id_combobox.grid(row=4, column=1, sticky=tk.W, pady=(0, 10))
+        id_combobox.grid(row=0, column=1, sticky=W, pady=5, padx = 5)
         id_combobox.bind("<<ComboboxSelected>>", self.update_configurations)
         
-        ttk.Label(main_frame, text="Dataset name:").grid(row=5, column=0, sticky=tk.W, pady=(0, 10))
+        tb.Label(config_group_frame, text="Dataset name:").grid(row=1, column=0, sticky=tk.W, pady=(0, 10))
         self.datasetname = tk.StringVar()
         self.datasetname.trace_add('write', self.on_namechange)
         self.datasetname.set("Select Name.")
-        name_combobox= ttk.Combobox(main_frame, textvariable= self.datasetname, width= 40)
+        name_combobox= tb.Combobox(config_group_frame, textvariable= self.datasetname, width= 40)
         name_combobox['values'] = [id_dict[id_key]['body_part'] for id_key in list(id_dict.keys())]
-        name_combobox.grid(row=5, column=1, sticky=tk.W, pady=(0, 10))
+        name_combobox.grid(row=1, column=1, sticky=W, pady=5, padx =  5)
         name_combobox.bind("<<ComboboxSelected>>", self.on_namechange)
 
         
 
-        ttk.Label(main_frame, text="Configuration:").grid(row=6, column=0, sticky=tk.W, pady=(0, 10))
+        tb.Label(config_group_frame, text="Configuration:").grid(row=2, column=0, sticky=tk.W, pady=(0, 10))
         self.config_var = tk.StringVar()
-        self.config_combobox = ttk.Combobox(main_frame, textvariable=self.config_var, width=40)
-        self.config_combobox.grid(row=6, column=1, sticky=tk.W, pady=(0, 10))
+        self.config_combobox = tb.Combobox(config_group_frame, textvariable=self.config_var, width=40)
+        self.config_combobox.grid(row=2, column=1, sticky=tk.W, padx = 5, pady = 5)
 
         # Row 5: Folds (check boxes)
-        ttk.Label(main_frame, text="Folds:").grid(row=7, column=0, sticky=tk.W, pady=(0, 10))
-        self.folds_frame = ttk.Frame(main_frame)
-        self.folds_frame.grid(row=7, column=1, sticky=(tk.W, tk.E), pady=(0, 10))
+        ttk.Label(config_group_frame, text="Folds:").grid(row=3, column=0, sticky=tk.W, pady=(0, 10))
+        self.folds_frame = tb.Frame(config_group_frame)
+        self.folds_frame.grid(row=3, column=1, sticky=EW, pady=10, padx = 5)
         self.folds_var = tk.StringVar(value="0,1,2,3,4")  # Default value of 5 folds
         self.folds_checkbuttons = []
         for i in range(5):
             var = tk.BooleanVar(value=True)  # Default to selected
-            check = ttk.Checkbutton(self.folds_frame, text=f"Fold {i}", variable=var)
-            check.grid(row=0, column=i, padx=5)
+            check = tb.Checkbutton(self.folds_frame, text=f"Fold {i}", variable=var)
+            check.grid(row=0, column=i, padx=5, pady=5)
             self.folds_checkbuttons.append((var, i))
 
         self.select_all_button = ttk.Button(self.folds_frame, text="Select All", command=self.select_all_folds)
         self.select_all_button.grid(row=1, column=0, columnspan=5)
 
        #Row 6
+        
+        preprocessing_frame = tb.LabelFrame(main_frame, text="Preprocessing Options", padding = "10", bootstyle= INFO)
+        preprocessing_frame.grid(row=2, column=1, columnspan=4, sticky=EW, pady=(0, 5), padx=5) # Use grid in main_frame
+        # Configure grid columns *inside* the LabelFrame
+        preprocessing_frame.columnconfigure(1, weight=1)
+
+
+
+
         self.split_nifti_var = tk.BooleanVar(value=False)
-        self.split_nifti_check = ttk.Checkbutton(main_frame, text="Split NIFTIs into left and right", variable=self.split_nifti_var)
-        self.split_nifti_check.grid(row=8, column=1, sticky=tk.W, pady=(0, 10))
+        tb.Label(preprocessing_frame, text= "Cutting along x direction:").grid(row=0, column =0, sticky = W, pady = 5, padx = 5)
+        self.split_nifti_check = tb.Checkbutton(preprocessing_frame, text="Split NIFTIs into left and right", variable=self.split_nifti_var)
+        self.split_nifti_check.grid(row=0, column=1, columnspan=4,   sticky=tk.W, pady=5, padx= 5)
         #Row 7
         self.enable_zcut = tk.BooleanVar(value=False)
-        enable_checkbox = ttk.Checkbutton(main_frame, 
+        enable_checkbox = tb.Checkbutton(preprocessing_frame, 
                                          text="Cut along z direction",
                                          variable=self.enable_zcut,
                                          command=self.toggle_zcut_inputs)
-        enable_checkbox.grid(row=9, column=1, columnspan=4, sticky=tk.W, pady=(0, 10))
+        enable_checkbox.grid(row=1, column=0, sticky=W, pady=5, padx = 5)
         
         # Z-range parameters (single row, two columns)
-        ttk.Label(main_frame, text="Z-Range:").grid(row=9, column=0, sticky=tk.W, pady=(0, 10))
-        
+       
         # Lower bound
-        ttk.Label(main_frame, text="Lower:").grid(row=9, column=2, sticky=tk.E, pady=(0, 10), padx=(0, 5))
+        ttk.Label(preprocessing_frame, text="Lower:").grid(row=1, column=2, sticky=E, pady=(0, 10), padx=(0, 5))
         self.lower_var = tk.StringVar(value="0")
-        self.lower_entry = ttk.Entry(main_frame, textvariable=self.lower_var, width=10)
-        self.lower_entry.grid(row=9, column=3, sticky=tk.W, pady=(0, 10))
+        self.lower_entry = tb.Entry(preprocessing_frame, textvariable=self.lower_var, width=10)
+        self.lower_entry.grid(row=1, column=3, sticky=tk.W, pady=(0, 10))
         self.lower_entry["state"] = "disabled"
         
         # Upper bound
-        ttk.Label(main_frame, text="Upper:").grid(row=9, column=4, sticky=tk.E, pady=(0, 10), padx=(20, 5))
+        ttk.Label(preprocessing_frame, text="Upper:").grid(row=1, column=4, sticky=tk.E, pady=(0, 10), padx=(20, 5))
         self.upper_var = tk.StringVar(value="0")
-        self.upper_entry = ttk.Entry(main_frame, textvariable=self.upper_var, width=10)
-        self.upper_entry.grid(row=9, column=5, sticky=tk.W, pady=(0, 10))
+        self.upper_entry = tb.Entry(preprocessing_frame, textvariable=self.upper_var, width=10)
+        self.upper_entry.grid(row=1, column=5, sticky=tk.W, pady=(0, 10))
         self.upper_entry["state"] = "disabled"
 
         #Row 8
         self.multiple_ids_var = tk.BooleanVar(value=False)
-        self.multiple_ids_check =ttk.Checkbutton(main_frame, text="Does the Input Folder have indiviudual subfolders \n e.g. multiple patients? Use custom filters ('+' -Button) as \n naming conventions might vary.", variable=self.multiple_ids_var)
-        self.multiple_ids_check.grid(row=13, column=1, sticky=tk.W, pady=(0, 10))
+        self.multiple_ids_check =tb.Checkbutton(preprocessing_frame, text="Does the Input Folder have indiviudual subfolders \n e.g. multiple patients? Use custom filters ('+' -Button) as  naming conventions might vary.", variable=self.multiple_ids_var)
+        self.multiple_ids_check.grid(row=2, column=0, columnspan=6, sticky=W, pady=(0, 10))
 
         # Button frame at the bottom
         button_frame = ttk.Frame(main_frame)
-        button_frame.grid(row=14, column=0, columnspan=2, pady=(20, 0))
-        submit_button = ttk.Button(button_frame, text="Submit", command=self.submit)
+        button_frame.grid(row=3, column=0, columnspan=2, pady=(20, 0))
+        submit_button = tb.Button(button_frame, text="Submit", command=self.submit, bootstyle= SUCCESS)
         submit_button.pack(side=tk.LEFT, padx=(0, 10))
-        clear_button = ttk.Button(button_frame, text="Clear", command=self.clear_fields)
+        clear_button = tb.Button(button_frame, text="Clear", command=self.clear_fields, bootstyle = WARNING)
         clear_button.pack(side=tk.LEFT)
 
         # Progress bar for displaying operation progress
         self.progress_var = tk.DoubleVar()
-        self.progress_bar = ttk.Progressbar(main_frame, variable=self.progress_var, maximum=100)
-        self.progress_bar.grid(row=15, column=0, columnspan=2, sticky=(tk.W, tk.E), pady=(10, 0))
+        self.progress_bar = tb.Progressbar(main_frame, variable=self.progress_var, maximum=100)
+        self.progress_bar.grid(row=4, column=0, columnspan=2, sticky=(tk.W, tk.E), pady=(10, 0))
         
         # Segment parameters editing window
-        self.segment_params_button = ttk.Button(button_frame, text="Edit Segment Params", command=self.edit_segment_params)
-        self.segment_params_button.pack(side=tk.LEFT)
+        self.segment_params_button = tb.Button(button_frame, text="Edit Segment Params", command=self.edit_segment_params)
+        self.segment_params_button.pack(side=tk.LEFT, padx = (10,0))
 
         # Configure grid to expand with window resizing
         main_frame.columnconfigure(1, weight=1)
 
         # Status bar at bottom of window
         self.status_var = tk.StringVar()
-        status_bar = ttk.Label(root, textvariable=self.status_var, relief=tk.SUNKEN, anchor=tk.W)
+        status_bar = tb.Label(root, textvariable=self.status_var, relief=tk.SUNKEN, anchor=tk.W, bootstyle = INFO)
         status_bar.pack(side=tk.BOTTOM, fill=tk.X)
         self.status_var.set("Ready")
 
@@ -435,34 +470,6 @@ class ParameterGUI:
             else:
                 self.indicators_menu.config(text=f"{len(self.selected_indicators)} indicators selected")
 
-    def get_available_indicators(self, path):
-        available_indicators = set()  # Use a set to avoid duplicates
-        if os.path.isdir(path):
-            all_files=[]
-            for root, dirs, files in os.walk(path):
-                for file in files:
-                    file_path = os.path.join(root, file)
-                    all_files.append(file_path)
-                    if len(all_files) >= 50:
-                        for i in range(0, len(all_files), 30): # change back from 500 for other stuff !!!!!!!
-                                file_path = all_files[i]
-                                try:
-                                    dicom_data = pydicom.dcmread(file_path)
-                                    if hasattr(dicom_data, 'SeriesDescription'):
-                                        series_description = dicom_data.SeriesDescription
-                                        if series_description:  # Ensure it's not empty
-                                            available_indicators.add(series_description)
-                                    else:
-                                        dicom_data = pydicom.dcmread(file_path)
-                                    if hasattr(dicom_data, 'PatientID'):
-                                        series_description = dicom_data.PatientID
-                                        if series_description:  # Ensure it's not empty
-                                            available_indicators.add(series_description)
-                                except Exception as e:
-                                    print(f"Error reading COM file {file_path}: {e}")
-                          
-        return sorted(list(available_indicators))  # Convert set to list for the dropdown menu
-    
 
     def toggle_indicators_entry(self):
             if self.use_default_indicators.get():
