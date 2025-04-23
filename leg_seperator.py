@@ -87,5 +87,23 @@ def zcut(nii_path, lower, upper):
     save(img, out_name)
     os.remove(nii_path)
 
+def masking(nii_path):
+    nii = load(nii_path)
+    volume =  nii.get_fdata()
+    affine = nii.affine
+    x_split= volume.shape[0]//2
+    left_data=volume.copy()
+    left_data[:x_split,:,:]=0 #zeros out left side of the images which corresponds to the patients right side in the usual position
+    suffix_right = 'rechts'
+    suffix_left= 'links'
+    right_data= volume.copy()
+    right_data[x_split:,:,:] =0
+    img_rechts = Nifti1Image(right_data, affine)
+    img_links = Nifti1Image(left_data, affine)
+    basename, ext = nii.get_filename().split(os.extsep, 1)
+    out_name_rechts = f'{basename}-{suffix_right}.{ext}'
+    out_name_links = f'{basename}-{suffix_left}.{ext}'
+    save(img_rechts, out_name_rechts)
+    save(img_links, out_name_links)
+    os.remove(nii_path)
 
-#cut(r"D:\nnUNet_raw\Dataset116_Becken\NIFTI\25.nii.gz", r"D:\nnUNet_raw\Dataset116_Becken\Labels\25.nii",200 , 800, r"D:\nnUNet_raw\Dataset116_Becken\precut label")

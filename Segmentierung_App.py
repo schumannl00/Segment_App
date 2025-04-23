@@ -8,6 +8,8 @@ import json
 import pathlib
 from pathlib import Path
 import numpy as np
+import threading
+import queue
 import dicom2nifti
 import pydicom 
 import dicom2nifti.settings as settings 
@@ -24,8 +26,8 @@ from stl import mesh
 from nii_to_stl_final import convert_to_LPS, process_with_parameters, process_directory
 from transform_DICOM_to_nifti import DICOM_splitter, raw_data_to_nifti, nifti_renamer
 import shutil
-from leg_seperator import separator, zcut
-
+from leg_seperator import masking, zcut
+from multiprocessed import raw_data_to_nifti_parallel
 id_dict = {
     '111': {
         'body_part': 'Sprunggelenk_gesund',
@@ -106,6 +108,14 @@ for id_key, labels in labels_dict.items():
             **default_segment_params
         }
 
+class ProgressEvent:
+    def __init__(self, value, message=None, error=None, completed=False):
+        self.value = value
+        self.message = message
+        self.error = error
+        self.completed = completed
+
+
 class ParameterGUI:
     def __init__(self, root):
         self.root = root
@@ -113,6 +123,15 @@ class ParameterGUI:
         self.root.geometry("900x600")
         self.root.resizable(True, True)
         
+         # Create a queue for thread communication
+        self.progress_queue = queue.Queue()
+        
+        # Flag to track if processing is currently running
+        self.processing_running = False
+        
+        # Start progress monitoring
+        self.poll_progress_queue()
+
         # Create main frame with padding
         main_frame = ttk.Frame(root, padding="20")
         main_frame.pack(fill=tk.BOTH, expand=True)
@@ -295,15 +314,86 @@ class ParameterGUI:
         status_bar.pack(side=tk.BOTTOM, fill=tk.X)
         self.status_var.set("Ready")
 
+        self.input_path.trace_add('write', self.schedule_indicator_scanning)
+
+    def schedule_indicator_scanning(self, *args):
     
-    def toggle_zcut_inputs(self):
-        """Enable or disable Z-cut inputs based on checkbox state"""
-        if self.enable_zcut.get():
-            self.lower_entry["state"] = "normal"
-            self.upper_entry["state"] = "normal"
+        path = self.input_path.get()
+        if os.path.isdir(path):
+            # Reset indicator menu
+            self.dropdown_menu.delete(0, tk.END)
+            self.selected_indicators.clear()
+            self.update_menubutton_text()
+            
+            # Show loading indicator in menu
+            self.indicators_menu.config(text="Scanning for indicators...")
+            
+            # Start scanning thread
+            scan_thread = threading.Thread(target=self.scan_indicators_thread, args=(path,))
+            scan_thread.daemon = True
+            scan_thread.start()
+
+    def scan_indicators_thread(self, path):
+        """Thread function to scan for indicators"""
+        try:
+            indicators = set()
+            
+            # Walk through directory and find DICOM files
+            for root, dirs, files in os.walk(path):
+                for file in files:
+                    file_path = os.path.join(root, file)
+                    try:
+                        # Try to read as DICOM
+                        dicom_data = pydicom.dcmread(file_path, stop_before_pixels=True)
+                        
+                        # Check for SeriesDescription
+                        if hasattr(dicom_data, 'SeriesDescription'):
+                            desc = dicom_data.SeriesDescription
+                            if desc:
+                                indicators.add(desc)
+                        
+                        # Check for PatientID
+                        elif hasattr(dicom_data, 'PatientID'):
+                            pid = dicom_data.PatientID
+                            if pid:
+                                indicators.add(pid)
+                        
+                        # Break after finding a few DICOM files with indicators
+                    except Exception:
+                        continue  # Skip non-DICOM files
+            
+            
+            # Update UI in main thread
+            self.root.after(0, lambda: self.update_indicators_options(sorted(indicators)))
+            
+        except Exception as e:
+            self.root.after(0, lambda: self.status_var.set(f"Error scanning indicators: {str(e)}"))
+
+    def update_indicators_options(self, indicators):
+        """Update the indicators menu with the scanned indicators"""
+        # Clear the menu and selected indicators
+        self.dropdown_menu.delete(0, tk.END)
+        self.selected_indicators.clear()
+        
+        # Add checkbuttons for each available indicator
+        for indicator in indicators:
+            var = tk.BooleanVar(value=False)
+            self.dropdown_menu.add_checkbutton(
+                label=indicator,
+                variable=var,
+                command=lambda ind=indicator: self.toggle_indicator(ind)
+            )
+    
+    # Update the menubutton text
+        self.update_menubutton_text()
+        
+        # Update status
+        if indicators:
+            self.indicators_menu.config(text="Select Indicators")
+            self.status_var.set(f"Found {len(indicators)} indicators")
         else:
-            self.lower_entry["state"] = "disabled"
-            self.upper_entry["state"] = "disabled"
+            self.indicators_menu.config(text="No indicators found")
+            self.status_var.set("No indicators found in the selected directory")
 
     def toggle_indicator(self, indicator):
             if indicator in self.selected_indicators:
@@ -317,26 +407,6 @@ class ParameterGUI:
             # Update the menubutton display text
             self.update_menubutton_text()
 
-    def update_indicator_options(self, path):
-            # Clear existing menu items
-            self.dropdown_menu.delete(0, tk.END)
-            self.selected_indicators.clear()
-            
-            # Get available indicators based on path attribute
-            # This is where you'd analyze the path and determine available options
-            available_indicators = self.get_available_indicators(path)
-            
-            # Add checkbuttons for each available indicator
-            for indicator in available_indicators:
-                self.dropdown_menu.add_checkbutton(
-                    label=indicator,
-                    onvalue=1, offvalue=0,
-                    command=lambda ind=indicator: self.toggle_indicator(ind)
-                )
-            
-            # Update the display text
-            self.update_menubutton_text()
-            return available_indicators
 
     def add_custom_indicator(self):
         """
@@ -373,8 +443,8 @@ class ParameterGUI:
                 for file in files:
                     file_path = os.path.join(root, file)
                     all_files.append(file_path)
-                    if len(all_files) >= 100:
-                        for i in range(0, len(all_files), 50): # change back from 500 for other stuff !!!!!!!
+                    if len(all_files) >= 50:
+                        for i in range(0, len(all_files), 30): # change back from 500 for other stuff !!!!!!!
                                 file_path = all_files[i]
                                 try:
                                     dicom_data = pydicom.dcmread(file_path)
@@ -391,7 +461,7 @@ class ParameterGUI:
                                 except Exception as e:
                                     print(f"Error reading COM file {file_path}: {e}")
                           
-        return list(available_indicators)  # Convert set to list for the dropdown menu
+        return sorted(list(available_indicators))  # Convert set to list for the dropdown menu
     
 
     def toggle_indicators_entry(self):
@@ -417,6 +487,14 @@ class ParameterGUI:
         if matching_id:
             self.id_var.set(matching_id)
             self.update_configurations(None)
+
+    def toggle_zcut_inputs(self):
+        if self.enable_zcut.get():
+            self.lower_entry["state"] = "normal"
+            self.upper_entry["state"] = "normal"
+        else:
+            self.lower_entry["state"] = "disabled"
+            self.upper_entry["state"] = "disabled"
     
     def drop_input_file(self, event, target_entry):
         """Handle drag and drop file input"""
@@ -424,7 +502,7 @@ class ParameterGUI:
         target_entry.delete(0,tk.END)
         target_entry.insert(0,file_path)
         self.status_var.set(f"Input file set to: {os.path.basename(file_path)}")
-        self.update_indicator_options(file_path)
+        #self.update_indicator_options(file_path)
 
     def drop_output_files(self, event, target_entry):
         """Handle drag and drop file input"""
@@ -462,7 +540,7 @@ class ParameterGUI:
         if dir_path:
             self.input_path.set(dir_path)
             self.status_var.set(f"Input directory set to: {os.path.basename(dir_path)}")
-            self.update_indicator_options(dir_path)
+            #self.update_indicator_options(dir_path)
 
 
     def browse_stl_output(self):
@@ -515,6 +593,7 @@ class ParameterGUI:
     def process_data(self, params):
         """Process the input data using the parameters from the GUI"""
         try:
+            self.progress_queue.put(ProgressEvent(10, "Converting DICOM to NIfTI..."))
             # Convert string path to Path object if needed
             input_path = Path(params["Input Path"]) if not isinstance(params["Input Path"], Path) else params["Input Path"]
             stl_output_path = Path(params["STL Output Path"]) if params["STL Output Path"] else Path(input_path.parent) / "stl"
@@ -536,6 +615,7 @@ class ParameterGUI:
             os.makedirs(labelmap_output_path, exist_ok=True)
             #Step 0: Convert input directory into single folder if multiple selected
             if multiple: 
+                self.progress_queue.put(ProgressEvent(5, "Merging multiple folders..."))
                 root_dir= input_path
                 target_dir= Path(input_path.parent)/ 'merged'
                 os.makedirs(target_dir, exist_ok=True)
@@ -548,17 +628,15 @@ class ParameterGUI:
                         shutil.copy2(source_file, target_file)
                     print("files merged")
                 input_path= target_dir
-            # Step 1: Convert DICOM to NIfTI
-            self.update_progress(10, "Converting DICOM to NIfTI...")
-            raw_data_to_nifti(input_path, scans_indicators=scan_indicators, use_default = use_default)
-            
+            # Step 1: Convert DICOM to NIfTI 
+            self.progress_queue.put(ProgressEvent(15, "Converting DICOM to NIfTI..."))
+            #raw_data_to_nifti(input_path, scans_indicators=scan_indicators, use_default = use_default)
+            raw_data_to_nifti_parallel(input_path, scans_indicators=scan_indicators, use_default=use_default, max_workers=12)
             # Step 2: Process NIfTI files - get files to process
-            self.update_progress(30, "Renaming NIfTI files...")
+            self.progress_queue.put(ProgressEvent(30, "Processing NIfTI files..."))
             #length = len(list((Path(params["Input Path"]).iterdir())))
             interference_path = os.path.join(str(input_path.parent),r'NIFTI')
-            if split:
-                for folder in os.listdir(interference_path):
-                    separator(os.path.join(interference_path,folder))
+           
             if cut_z:
                 try:
                     lower = int(lower)
@@ -583,7 +661,7 @@ class ParameterGUI:
                 
                     
            
-    
+            self.progress_queue.put(ProgressEvent(40, "Renaming NIfTI files..."))
             file_mapping = {}
             for i, folder in enumerate(os.listdir(interference_path)):
                 nifti_renamer(os.path.join(interference_path,folder), prefix=prefix, suffix=suffix, number=i, file_mapping=file_mapping)
@@ -593,7 +671,7 @@ class ParameterGUI:
             print(file_mapping)
         
             # Step 3: Use nnUNet predictor for segmentation
-            self.update_progress(50, "Running nnUNet prediction...")
+            self.progress_queue.put(ProgressEvent(50, "Setting up nnUNet predictor..."))
             selected_id = params["ID"]
             configuration = params["Configuration"]
             folds = params["Folds"]
@@ -610,6 +688,7 @@ class ParameterGUI:
                 allow_tqdm=True
             )
             
+            
             # Set the model based on the ID and configuration
             predictor.initialize_from_trained_model_folder(
                 join(nnUNet_results, id_dict[selected_id]['Path_to_results'][configuration]),
@@ -618,7 +697,8 @@ class ParameterGUI:
             )
             
             # Run prediction on the input data
-            self.update_progress(70, "Segmenting data...")
+        
+            self.progress_queue.put(ProgressEvent(60, "Running segmentation..."))
             predictor.predict_from_files(
                 str(interference_path), 
                 str(labelmap_output_path),
@@ -628,14 +708,22 @@ class ParameterGUI:
                 num_processes_segmentation_export=2,
                 folder_with_segs_from_prev_stage=None, num_parts=1, part_id=0)
             
+
+            #Masking after segmentation, should not cause problems in the segmentation is faster and background is 0 for every file 
+            
+            if split:
+                for folder in os.listdir(labelmap_output_path):
+                    if folder.endswith(".nii.gz"):
+                        masking(os.path.join(labelmap_output_path,folder))
+
             # Step 4: Convert segmentation to STL files
-            self.update_progress(80, "Converting segmentations to STL...")
+            self.progress_queue.put(ProgressEvent(80, "Converting segmentations to STL..."))
             
             # Get label files from the output directory
             process_directory(labelmap_output_path, stl_output_path, segment_params=segment_params[selected_id], file_mapping=file_mapping, split=split)
             
             
-            self.update_progress(100, "Processing complete!")
+            self.progress_queue.put(ProgressEvent(100, "Processing complete!", completed=True))
             messagebox.showinfo("Success", "Data processing has been completed successfully!")
             return True
             
@@ -643,10 +731,44 @@ class ParameterGUI:
             messagebox.showerror("Error", f"An error occurred during processing: {str(e)}")
             self.status_var.set(f"Error: {str(e)}")
             return False
+        
+    def poll_progress_queue(self):
+        """Check progress queue for updates and update UI accordingly"""
+        try:
+            while True:
+                event = self.progress_queue.get_nowait()
+                if event.error:
+                    self.processing_running = False
+                    messagebox.showerror("Error", f"An error occurred: {event.error}")
+                    self.status_var.set(f"Error: {event.error}")
+                elif event.completed:
+                    self.processing_running = False
+                    messagebox.showinfo("Success", "Processing completed successfully!")
+                    self.status_var.set("Processing complete!")
+                else:
+                    if event.value is not None:
+                        self.progress_var.set(event.value)
+                    if event.message:
+                        self.status_var.set(event.message)
+                
+                self.progress_queue.task_done()
+        except queue.Empty:
+            pass
+        
+        # Reschedule poll after 100ms
+        self.root.after(100, self.poll_progress_queue)
+    
 
     def submit(self):
         """Process the form submission and run data processing"""
         # Validate required fields
+
+         # Check if processing is already running
+        if self.processing_running:
+            messagebox.showwarning("Processing in Progress", 
+                                  "Please wait for the current operation to complete.")
+            return
+
         if not self.input_path.get()  or not self.id_var.get():
             messagebox.showerror("Error", "Input path and ID are required")
             return
@@ -676,12 +798,16 @@ class ParameterGUI:
         )
         
         if confirmation:
+            self.processing_running = True
             self.status_var.set("Processing started...")
             self.progress_var.set(0)
             
             # Use a separate thread to avoid freezing the GUI
             # For simplicity, we're not using threading here, but in a real app you might want to
-            self.process_data(params)
+            processing_thread = threading.Thread(target=self.process_data, args=(params,))
+            processing_thread.daemon = True
+            processing_thread.start()
+
 
     def edit_segment_params(self):
 
@@ -689,7 +815,9 @@ class ParameterGUI:
         if not selected_id:
             messagebox.showerror("Error", "Please select an ID or name first.")
             return
-
+        if self.processing_running:
+            messagebox.showwarning("Processing in Progress", 
+                                  "Please wait for the current operation to complete before editing parameters.")
         segment_window = tk.Toplevel(self.root)
         segment_window.title("Edit Segment Params")
         segment_window.geometry("500x400")
@@ -761,5 +889,7 @@ class ParameterGUI:
 
 if __name__ == "__main__":
     root = TkinterDnD.Tk()
+    from multiprocessing import freeze_support
+    freeze_support()
     app = ParameterGUI(root)
     root.mainloop()
