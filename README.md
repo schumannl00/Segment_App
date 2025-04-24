@@ -1,23 +1,23 @@
 # nnUNet Segmentation App
 
-A GUI-based application for medical image segmentation using the nnUNet framework, supporting DICOM to NIfTI conversion, automatic segmentation with pre-trained models, and STL export for 3D printing.
+A GUI-based application for medical image segmentation using the nnUNet framework, supporting DICOM to NIfTI conversion, automatic segmentation with pre-trained models, and STL export for 3D printing or further analysis.
 
 ## Overview
 
 This tool provides an end-to-end pipeline for medical image segmentation:
 1. DICOM to NIfTI conversion
-2. Optional pre-processing (splitting into left/right, Z-axis cutting)
+2. Optional pre-processing ("splitting" into left/right, Z-axis cutting)
 3. nnUNet-based automatic segmentation
 4. 3D model generation in STL format
 
-The application is designed to be user-friendly with a GUI interface supporting drag-and-drop functionality, customizable segmentation parameters, and batch processing capabilities.
+The application is designed to be user-friendly with a GUI interface that supports drag-and-drop functionality, customizable segmentation parameters, and light batch processing capabilities.
 
 ## Features
 
 - **User-friendly GUI** with drag-and-drop support
-- **DICOM filtering** by series description
+- **DICOM filtering** by series description to select specific scans as everything above 1mm slice thickness 
 - **Pre-trained models** for various body parts:
-  - Ankle (healthy and mixed pathology)
+  - Ankle (healthy and post op)
   - Shoulder
   - Pelvis
 - **Pre-processing options**:
@@ -69,7 +69,7 @@ export nnUNet_results="/path/to/nnUNet_results"
 
 4. Choose dataset ID and configuration:
    - ID 111: Healthy ankle
-   - ID 112: Mixed pathology ankle
+   - ID 112: Post operation ankle with plates and screws
    - ID 114: Shoulder
    - ID 116: Pelvis
 
@@ -88,7 +88,7 @@ export nnUNet_results="/path/to/nnUNet_results"
 
 Click "Edit Segment Params" to customize parameters for each anatomical structure:
 - `smoothing`: Overall smoothing factor (0.0-1.0)
-- `mesh_smoothing_method`: Method used for mesh smoothing (e.g., 'taubin')
+- `mesh_smoothing_method`: Method used for mesh smoothing ( 'taubin')
 - `mesh_smoothing_iterations`: Number of smoothing iterations
 - `mesh_smoothing_factor`: Strength of smoothing per iteration
 
@@ -99,7 +99,7 @@ The tool comes with several pre-trained models:
 | ID  | Body Part          | Configuration | Description                  |
 |-----|-------------------|---------------|------------------------------|
 | 111 | Ankle (healthy)   | 3d_fullres    | Healthy ankle segmentation   |
-| 112 | Ankle (mixed)     | 3d_fullres    | Mixed pathology ankle        |
+| 112 | Ankle (mixed)     | 3d_fullres    | Ankle sgementation post op   |
 | 114 | Shoulder          | 3d_fullres    | Shoulder segmentation        |
 | 116 | Pelvis            | 3d_fullres    | Pelvis segmentation          |
 
@@ -109,7 +109,14 @@ The application generates:
 - NIfTI files from DICOM data
 - Segmentation label maps
 - STL files for 3D printing
-- A `decoder.json` file mapping file names to original identifiers
+- A `decoder.json` file mapping the, for the segmentation, renamed files to the original ones. 
+
+## Explanation for certain choices
+
+The filtering via the Series Description is optional. It will just get Exceptions for files it cannot transform, which usually are exam summaries or dosis infos. If there are a lot of scans for a patient, it is still advised to use the one with the smallest slice thickness as it will reduce steps in the stls. 
+For now, dictionaries are stored in the code as more models are added, moving them to an external json file and loading is advised. 
+I chose both labelmap smoothing as well as mesh smoothing. The first to remove minor artifacts from the segmentation, like a stay misclassed voxel. The latter to remove the step artifacts that can show up in the conversion using taubin smoothing ensure next to no volume change. I compared the resulting STLs to ones created from the segmentation maps using 3DSlicers built in conversion and there is no meaningful difference. 
+As there is no medical certification, this should be only used for research and not for clinical use. 
 
 ## Troubleshooting
 
@@ -117,9 +124,8 @@ The application generates:
 
 1. **CUDA/GPU errors**: Make sure your CUDA installation matches your PyTorch version.
 2. **Memory errors**: Try processing with smaller batch sizes or on CPU if GPU memory is limited.
-3. **Missing DICOM tags**: Ensure your DICOM files contain standard tags.
-4. **Z-range issues**: When using Z-cuts, ensure values are within the image dimensions.
-
+3. **Odd DICOM tags**: The majority of the conventions for the Series description were tested, but there might be an odd one out. Check the terminal after the conversion to see if the filenames were handled correctly.
+4. **PyTorch version**: Make sure the right PyTorch version (2.5.1) is installed, as there are compatibility issues with nnUNet and the newer version. 
 ### Reporting Issues
 
 Please open an issue on GitHub with:
