@@ -115,6 +115,7 @@ The application generates:
 
 The filtering via the Series Description is optional. It will just get Exceptions for files it cannot transform, which usually are exam summaries or dosis infos. If there are a lot of scans for a patient, it is still advised to use the one with the smallest slice thickness as it will reduce steps in the stls. 
 For now, dictionaries are stored in the code as more models are added, moving them to an external json file and loading is advised. 
+In "splitting" into left and right we don't seperate the files into left and right, but mask the undesired side. We apply it to the labelmaps as the background value is 0 for every file. This avoids alignment issues in the stl and allows the user to use one-sided labelmaps for other applications if needed. 
 I chose both labelmap smoothing as well as mesh smoothing. The first to remove minor artifacts from the segmentation, like a stay misclassed voxel. The latter to remove the step artifacts that can show up in the conversion using taubin smoothing ensure next to no volume change. I compared the resulting STLs to ones created from the segmentation maps using 3DSlicers built in conversion and there is no meaningful difference. 
 As there is no medical certification, this should be only used for research and not for clinical use. 
 
