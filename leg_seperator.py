@@ -79,6 +79,8 @@ def zcut(nii_path, lower, upper):
     suffix = "cut"
     x_range=slice(0,nii.shape[0])
     y_range =slice(0,nii.shape[1])
+    max_z = nii.shape[2]
+    upper = min(upper, max_z)
     cut_z_range = slice(lower, upper)
     roi = np.asarray(nii.dataobj[x_range,y_range,cut_z_range])
     img = Nifti1Image(roi, affine = nii.affine)
@@ -88,6 +90,7 @@ def zcut(nii_path, lower, upper):
     os.remove(nii_path)
 
 def masking(nii_path):
+    nib.openers.Opener.default_compresslevel = 9
     nii = load(nii_path)
     volume =  nii.get_fdata()
     affine = nii.affine
@@ -106,4 +109,6 @@ def masking(nii_path):
     save(img_rechts, out_name_rechts)
     save(img_links, out_name_links)
     os.remove(nii_path)
+
+
 

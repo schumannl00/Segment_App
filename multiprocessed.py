@@ -6,7 +6,7 @@ import dicom2nifti
 from pathlib import Path
 import concurrent.futures
 import time # For potential timing/debugging
-
+from dicom2nifti import settings
 
 def build_pattern(indicator):
     pattern = re.escape(indicator)
@@ -52,7 +52,7 @@ def DICOM_splitter(path):
 
                 # Determine Modality (handle missing attribute)
                 file_modality = str(getattr(read_file, 'Modality', 'UnknownModality')).strip()
-
+                file_PatientName = re.sub(r'[\\/*?:"<>|_]', '-', str(read_file.PatientName).strip())
                 # Determine Series Description (handle missing attribute)
                 file_series_description = str(getattr(read_file, 'SeriesDescription', 'UnknownSeries')).strip()
                 # Sanitize description for path usage
@@ -62,7 +62,7 @@ def DICOM_splitter(path):
                     file_series_description = "UnknownSeries"
 
                 # Construct the target directory name
-                target_dir_name = f"{file_series_id}_{file_modality}_{file_series_description}"
+                target_dir_name = f"{file_series_id}_{file_PatientName}_{file_series_description}"  # Changed to Patient Name for now as mainly doing CTs. 
                 description_path = sort_dir / target_dir_name
 
                 # Create directory if it doesn't exist
@@ -91,6 +91,7 @@ def DICOM_splitter(path):
 
 # --- Helper function for converting a single series ---
 def convert_single_series_to_nifti(input_dir_path, output_nifti_path):
+    
     """Converts a single directory of DICOM series to a NIFTI file."""
     try:
         print(f"Attempting conversion: {input_dir_path} -> {output_nifti_path}")
@@ -270,4 +271,4 @@ if __name__ == "__main__":
     from multiprocessing import freeze_support
     freeze_support()  # This is needed for Windows
     # Your function call here
-    raw_data_to_nifti_parallel(r"D:\test\raw", use_default=True, max_workers=12)   
+    raw_data_to_nifti_parallel(r"Q:\Studenten\Leonard Schumann\test firas\Data(MT1)", use_default=True, max_workers=12)   

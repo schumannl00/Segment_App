@@ -21,6 +21,11 @@ def smooth_mesh_pyvista(vertices, faces, method='taubin', n_iter=100, relaxation
     Returns:
     np.array: Smoothed vertices
     """
+
+    vertices= np.array(vertices, dtype=np.float64)
+
+    original_centroid= np.mean(vertices, axis=0)
+    print(f"Original centroid located at {original_centroid}")
     # Create faces array in required format for PyVista
     faces_pv = np.hstack([[3, f[0], f[1], f[2]] for f in faces])
     
@@ -32,12 +37,15 @@ def smooth_mesh_pyvista(vertices, faces, method='taubin', n_iter=100, relaxation
         mesh_smoothed = mesh_pv.smooth(n_iter=n_iter, relaxation_factor=relaxation_factor)
     elif method == 'taubin':
         mesh_smoothed = mesh_pv.smooth_taubin(n_iter=n_iter, pass_band=relaxation_factor)
-    elif method == 'sinc':
-        mesh_smoothed = mesh_pv.smooth_sinc(n_iter=n_iter, window_size=relaxation_factor)
     else:
         raise ValueError(f"Unknown smoothing method: {method}")
     
-    return mesh_smoothed.points
+    smoothed_vertices=mesh_smoothed.points.astype(np.float64)
+    new_centroid= np.mean(smoothed_vertices,axis=0)
+    shift= original_centroid - new_centroid
+    print(f"Correcting centroid shift of {shift}.")
+    smoothed_vertices += shift
+    return smoothed_vertices
 
 def fill_holes_3d(segmentation):
     """
@@ -225,6 +233,7 @@ def process_with_parameters(input_file, output_prefix, segment_params, additiona
                              'mesh_smoothing_factor': float
                          }}
     """
+    nib.openers.Opener.default_compresslevel = 9
     nii_img = nib.load(input_file)
     nii_data = nii_img.get_fdata()
     spacing = nii_img.header.get_zooms()
@@ -246,7 +255,7 @@ def process_with_parameters(input_file, output_prefix, segment_params, additiona
         binary_smooth = smoothed_segment > 0.5
         
         # Generate surface mesh
-        verts, faces, _, _ = measure.marching_cubes(binary_smooth, level=0.5)
+        verts, faces, _, _ = measure.marching_cubes(binary_smooth, level=0.5,)
         
         if fill_holes > 0:
             print(f"Analyzing holes for segment {label} ('{output_label}'):")
@@ -265,6 +274,7 @@ def process_with_parameters(input_file, output_prefix, segment_params, additiona
         # fill_holes = suggested_fill_size
         # Apply mesh smoothing
         if mesh_iterations > 0:
+            
             verts = smooth_mesh_pyvista(verts, faces, 
                                       method=mesh_method,
                                       n_iter=mesh_iterations,
@@ -296,14 +306,14 @@ segment_params = {
         'label': "Fibula",
         'smoothing': 0.1,  # Less volume smoothing
         'mesh_smoothing_method': 'taubin',
-        'mesh_smoothing_iterations': 400,  # Fewer iterations
+        'mesh_smoothing_iterations': 50,  # Fewer iterations
         'mesh_smoothing_factor': 0.1  # Gentler smoothing
     },
     2: {
         'label': "Talus" ,
         'smoothing': 0.9,
         'mesh_smoothing_method': 'taubin',
-        'mesh_smoothing_iterations': 650, # More iterations
+        'mesh_smoothing_iterations': 50, # More iterations
         'mesh_smoothing_factor': 0.1  # Stronger smoothing
     
     },
@@ -311,7 +321,7 @@ segment_params = {
         'label': "Tibia",
         'smoothing': 0.8,
         'mesh_smoothing_method': 'taubin',
-        'mesh_smoothing_iterations': 400,  
+        'mesh_smoothing_iterations': 50,  
         'mesh_smoothing_factor': 0.1
 }
 }
@@ -334,7 +344,9 @@ def process_directory( input_dir, output_root_dir,segment_params, fill_holes=0, 
                 
                 # Call convert_nifti_to_stls for each file
                 print(f"Processing file: {input_file}")
-                process_with_parameters(input_file, output_dir, segment_params, additional_name=file_number,fill_holes=fill_holes)
-
+                try:
+                    process_with_parameters(input_file, output_dir, segment_params, additional_name=file_number,fill_holes=fill_holes)
+                except Exception as e:
+                    print(f"Failed to convert {input_file} due to str({e}) ")
 
 

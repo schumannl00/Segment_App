@@ -627,14 +627,21 @@ class ParameterGUI:
                 root_dir= input_path
                 target_dir= Path(input_path.parent)/ 'merged'
                 os.makedirs(target_dir, exist_ok=True)
+                processed_files = 0 
                 for root, dirs, files in os.walk((os.path.normpath(root_dir)), topdown=False):
+                    rel_path = os.path.relpath(root, root_dir)
                     for name in files: # removed dcm failsafe
-                        subfolder_name= os.path.basename(root)
-                        new_name= f'{subfolder_name}_{name}'
+                        processed_files += 1
+                        if rel_path != "":
+                            path_prefix=rel_path.replace(os.sep, "_")
+                            new_name = F"{path_prefix}_{name}"
+                        else:
+                            new_name = name 
                         source_file = os.path.join(root, name)
                         target_file = os.path.join(target_dir, new_name)
                         shutil.copy2(source_file, target_file)
                     print("files merged")
+                print(processed_files)
                 input_path= target_dir
             # Step 1: Convert DICOM to NIfTI 
             self.progress_queue.put(ProgressEvent(15, "Converting DICOM to NIfTI..."))
@@ -683,7 +690,7 @@ class ParameterGUI:
             selected_id = params["ID"]
             configuration = params["Configuration"]
             folds = params["Folds"]
-            
+            print(torch.device('cuda' if torch.cuda.is_available() else 'cpu'))
             # Create the nnUNet predictor with the specified parameters
             predictor = nnUNetPredictor(
                 tile_step_size=0.5,
@@ -782,7 +789,7 @@ class ParameterGUI:
                         logging.warning(f"No matching original filename found for number {number}")
 
             self.progress_queue.put(ProgressEvent(100, "Processing complete!", completed=True))
-            messagebox.showinfo("Success", "Data processing has been completed successfully!")
+            
             return True
             
         except Exception as e:
