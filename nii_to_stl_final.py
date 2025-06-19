@@ -6,6 +6,13 @@ import pyvista as pv
 from stl import mesh
 import os 
 from scipy.ndimage import binary_fill_holes, binary_closing
+import pymeshfix
+import logging
+import json 
+import shutil
+import trimesh 
+
+
 
 def smooth_mesh_pyvista(vertices, faces, method='taubin', n_iter=100, relaxation_factor=0.1):
     """
@@ -219,7 +226,80 @@ def convert_to_LPS(vertices):
     vertices[:, 0] *=-1.0
     return vertices
     
-def process_with_parameters(input_file, output_prefix, segment_params, additional_name=None, fill_holes=0):
+
+
+def cap_open_holes(mesh_to_cap):
+    """
+    Finds and caps large, closed-loop holes in a mesh.
+    This is the definitive, robust version that includes:
+    1. A pre-repair step to weld topological gaps (merge_vertices).
+    2. A safe check (hasattr) to filter out non-closed entities like 'Line'
+       objects that were causing crashes.
+
+    Args:
+        mesh_to_cap (trimesh.Trimesh): The mesh with open holes.
+
+    Returns:
+        trimesh.Trimesh: The capped, watertight mesh.
+    """
+    print("--- Running Final Robust Planar Hole Capping ---")
+    
+    mesh = mesh_to_cap.copy()
+
+    # Step 1: Pre-repair the mesh to close topological gaps.
+    # This is critical for ensuring visual holes are recognized as closed loops.
+    print("Pre-processing: Welding vertices to close topological gaps...")
+    mesh.merge_vertices()
+
+    # Step 2: Find all boundary entities.
+    hole_loops = mesh.outline()
+
+    caps = []
+    for loop_entity in hole_loops.entities:
+        # --- THE DEFINITIVE FIX FOR THE ATTRIBUTEERROR ---
+        # Use hasattr() to safely check if the entity has the 'is_closed'
+        # property. If it doesn't, or if the property is False, we skip it.
+        # This correctly handles both 'Line' objects (which lack the property)
+        # and any other non-closed loops.
+        if not (hasattr(loop_entity, 'is_closed') and loop_entity.is_closed):
+            print("Skipping a boundary entity that is not a closed loop.")
+            continue
+        # --- END OF FIX ---
+
+        # We are now guaranteed to have a valid, closed loop.
+        if len(loop_entity.points) < 10:
+            print(f"Skipping small closed loop with {len(loop_entity.points)} vertices.")
+            continue
+
+        print(f"Found a fillable closed loop with {len(loop_entity.points)} vertices. Attempting to cap.")
+
+        vertices_2d, to_3D_transform = loop_entity.to_planar()
+        
+        try:
+            triangles_2d = trimesh.path.polygons.triangulate_polygon(vertices_2d)
+        except Exception as e:
+            print(f"Warning: 2D triangulation failed for a hole: {e}. Skipping this hole.")
+            continue
+
+        cap_faces = loop_entity.points[triangles_2d]
+        cap_mesh = trimesh.Trimesh(vertices=mesh.vertices, faces=cap_faces)
+        caps.append(cap_mesh)
+
+    if not caps:
+        print("No suitable closed-loop holes were found to cap after welding.")
+        # Return the pre-repaired mesh even if no holes were capped
+        return mesh
+
+    print(f"Stitching {len(caps)} new caps onto the original mesh.")
+    final_mesh, _ = trimesh.util.concatenate([mesh] + caps)
+    
+    final_mesh.merge_vertices()
+    final_mesh.fix_normals()
+
+    print("Hole capping complete.")
+    return final_mesh
+
+def process_with_parameters(input_file, output_prefix, segment_params, additional_name=None, fill_holes=0, use_pymeshfix = True):
     """
     Process the segmentation with different parameters for each segment.
     
@@ -240,10 +320,10 @@ def process_with_parameters(input_file, output_prefix, segment_params, additiona
     
     
     for label, params in segment_params.items():
-        volume_smoothing = params.get('smoothing', 0)
+        volume_smoothing = params.get('smoothing', 0.1)
         output_label = params.get('label', f"segment_{label}")
         mesh_method = params.get('mesh_smoothing_method', 'taubin')
-        mesh_iterations = params.get('mesh_smoothing_iterations', 35)
+        mesh_iterations = params.get('mesh_smoothing_iterations', 100)
         mesh_factor = params.get('mesh_smoothing_factor', 0.1)
         
         # Volume smoothing
@@ -265,27 +345,44 @@ def process_with_parameters(input_file, output_prefix, segment_params, additiona
             if hole_stats["hole_count"] > 0:
                 suggested_fill_size = hole_stats["largest_hole"] * 1.1  # 10% larger than largest hole
                 print(f"Suggested fill_holes value: {suggested_fill_size:.2f}")
+
+
+
         #This should fix the shifting issue
         affine = nii_img.affine  # Get the transform matrix
         verts = np.hstack([verts, np.ones((verts.shape[0], 1))])  # Add homogeneous coordinate
         verts = (affine @ verts.T).T[:, :3]  # Apply affine and drop homogeneous coord
         convert_to_LPS(verts)
-        # Optionally, use the suggested value
-        # fill_holes = suggested_fill_size
-        # Apply mesh smoothing
+
         if mesh_iterations > 0:
-            
             verts = smooth_mesh_pyvista(verts, faces, 
                                       method=mesh_method,
                                       n_iter=mesh_iterations,
                                       relaxation_factor=mesh_factor)
             
-        if fill_holes > 0:
-            print(f"Filling holes up to size {fill_holes} for segment {label}...")
-            verts, faces = fill_holes_pyvista(verts, faces, hole_size=fill_holes)
-            print(f"Holes filled for segment {label}")
+    
+        if use_pymeshfix:
+            print(f"Attempting Pymeshfix repair")
+            try:
+                meshfix = pymeshfix.MeshFix(verts, faces)
+                meshfix.repair(verbose=False) 
+                verts_repaired = meshfix.v
+                faces_repaired = meshfix.f
+                if faces_repaired.shape[0] > 0:
+                    print(f"Pymeshfix repair successful. Original faces: {faces.shape[0]}, Repaired faces: {faces_repaired.shape[0]}")
+                    verts, faces = verts_repaired, faces_repaired
+                else:
+                    print("Pymeshfix resulted in an empty mesh. Using pre-Pymeshfix mesh.")
+            except Exception as e:
+                print(f"Pymeshfix repair failed: {e}. Using pre-Pymeshfix mesh.")   
+            verts = smooth_mesh_pyvista(verts, faces, 
+                                        method=mesh_method,
+                                        n_iter=100,
+                                        relaxation_factor=0.1)
+                
         
-        
+
+
         # Create and save STL
         stl_mesh = mesh.Mesh(np.zeros(faces.shape[0], dtype=mesh.Mesh.dtype))
         for i, face in enumerate(faces):
@@ -301,27 +398,27 @@ def process_with_parameters(input_file, output_prefix, segment_params, additiona
 
 
 
-segment_params = {
+segment_params_ftt = {
     1: {
         'label': "Fibula",
-        'smoothing': 0.1,  # Less volume smoothing
+        'smoothing': 3.0,  
         'mesh_smoothing_method': 'taubin',
-        'mesh_smoothing_iterations': 50,  # Fewer iterations
+        'mesh_smoothing_iterations': 250,  # Fewer iterations
         'mesh_smoothing_factor': 0.1  # Gentler smoothing
     },
     2: {
         'label': "Talus" ,
-        'smoothing': 0.9,
+        'smoothing': 3.0,
         'mesh_smoothing_method': 'taubin',
-        'mesh_smoothing_iterations': 50, # More iterations
+        'mesh_smoothing_iterations': 250, # More iterations
         'mesh_smoothing_factor': 0.1  # Stronger smoothing
     
     },
     3: {
         'label': "Tibia",
-        'smoothing': 0.8,
+        'smoothing': 3.0,
         'mesh_smoothing_method': 'taubin',
-        'mesh_smoothing_iterations': 50,  
+        'mesh_smoothing_iterations': 250,  
         'mesh_smoothing_factor': 0.1
 }
 }
@@ -345,8 +442,10 @@ def process_directory( input_dir, output_root_dir,segment_params, fill_holes=0, 
                 # Call convert_nifti_to_stls for each file
                 print(f"Processing file: {input_file}")
                 try:
-                    process_with_parameters(input_file, output_dir, segment_params, additional_name=file_number,fill_holes=fill_holes)
+                    process_with_parameters(input_file, output_dir, segment_params, additional_name=file_number,fill_holes=fill_holes, use_pymeshfix=True)
                 except Exception as e:
                     print(f"Failed to convert {input_file} due to str({e}) ")
 
-
+if __name__ == "__main__":
+    process_directory(r"E:\OSG CT\Results\transfer\test artefakte\label",r"E:\OSG CT\Results\transfer\test artefakte\stls",segment_params=segment_params_ftt)
+    
