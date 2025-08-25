@@ -7,6 +7,10 @@ from pathlib import Path
 import concurrent.futures
 import time # For potential timing/debugging
 from dicom2nifti import settings
+from pydicom.errors import InvalidDicomError
+
+
+settings. disable_validate_slice_increment()
 
 def build_pattern(indicator):
     pattern = re.escape(indicator)
@@ -52,20 +56,19 @@ def DICOM_splitter(path):
 
                 # Determine Modality (handle missing attribute)
                 file_modality = str(getattr(read_file, 'Modality', 'UnknownModality')).strip()
-                file_PatientName = re.sub(r'[\\/*?:"<>|_]', '-', str(read_file.PatientName).strip())
+                file_PatientName = re.sub(r'[\\/*?:"<>|_]', '-', str(read_file.PatientName))   #removed  str(read_file.PatientName).strip()
                 # Determine Series Description (handle missing attribute)
                 file_series_description = str(getattr(read_file, 'SeriesDescription', 'UnknownSeries')).strip()
                 # Sanitize description for path usage
                 file_series_description = re.sub(r'[\\/*?:"<>|]', '_', file_series_description)
-                # Handle potentially empty but existing SeriesDescription
                 if not file_series_description:
                     file_series_description = "UnknownSeries"
 
-                # Construct the target directory name
-                target_dir_name = f"{file_series_id}_{file_PatientName}_{file_series_description}"  # Changed to Patient Name for now as mainly doing CTs. 
+                
+                target_dir_name = f"{file_series_id}_{file_PatientName}_{file_series_description}"  
                 description_path = sort_dir / target_dir_name
 
-                # Create directory if it doesn't exist
+                
                 description_path.mkdir(exist_ok=True)
 
                 # Copy the file
@@ -81,13 +84,13 @@ def DICOM_splitter(path):
             except Exception as e:
                 print(f"Error processing file {original_file_path}: {e}")
                 error_files += 1
-                continue # Skip to next file on error
+                continue 
 
     print(f"DICOM Sorting Summary:")
     print(f"  Copied: {copied_files}")
     print(f"  Skipped (already exist): {skipped_files}")
     print(f"  Errors: {error_files}")
-    return sort_dir, nifti_out_dir # Return paths for the next step
+    return sort_dir, nifti_out_dir 
 
 # --- Helper function for converting a single series ---
 def convert_single_series_to_nifti(input_dir_path, output_nifti_path):
@@ -95,11 +98,11 @@ def convert_single_series_to_nifti(input_dir_path, output_nifti_path):
     """Converts a single directory of DICOM series to a NIFTI file."""
     try:
         print(f"Attempting conversion: {input_dir_path} -> {output_nifti_path}")
-        # Ensure the output directory exists (though it should have been created by DICOM_splitter)
+        
         Path(output_nifti_path).parent.mkdir(exist_ok=True)
-        dicom2nifti.dicom_series_to_nifti(str(input_dir_path), str(output_nifti_path), reorient_nifti=True) # Use reorient? Check dicom2nifti docs
+        dicom2nifti.dicom_series_to_nifti(str(input_dir_path), str(output_nifti_path), reorient_nifti=True) 
         print(f"Successfully converted: {output_nifti_path.name}")
-        return (str(input_dir_path), True, str(output_nifti_path)) # Return input, success status, output path
+        return (str(input_dir_path), True, str(output_nifti_path)) 
     except Exception as e:
         # Catch specific dicom2nifti errors if possible, otherwise general Exception
         error_msg = f"Failed conversion for {input_dir_path.name}: {e}"
@@ -161,7 +164,7 @@ def raw_data_to_nifti_parallel(raw_path, scans_indicators=None, use_default=Fals
             print(f"Using scan indicators: {scans_indicators}")
         except re.error as e:
             print(f"Error compiling regex for scan indicators: {e}. Please check indicators: {scans_indicators}")
-            return # Stop if indicators are invalid regex
+            return 
 
     skipped_dirs = []
     dirs_to_convert = []
@@ -169,11 +172,11 @@ def raw_data_to_nifti_parallel(raw_path, scans_indicators=None, use_default=Fals
     for item_name in os.listdir(sort_dir):
         full_path = sort_dir / item_name
         if full_path.is_dir():
-            # Check if this directory should be converted based on indicators
+    
             should_convert = False
             if use_default:
                 should_convert = True
-            elif patterns: # Only check patterns if they exist (i.e., indicators provided and not use_default)
+            elif patterns: 
                 if len(item_name.split("_"))>3:
                     name= item_name.split("_")[2]
                     for i in range(3,len(item_name.split("_"))):
@@ -184,15 +187,15 @@ def raw_data_to_nifti_parallel(raw_path, scans_indicators=None, use_default=Fals
                 elif any(pattern.search(item_name.split("_")[2]) for pattern in patterns):
                      should_convert = True
                 else:
-                     skipped_dirs.append(item_name) # Keep track of skipped dirs
-            else: # No indicators provided and not use_default -> convert nothing unless explicitly told
+                     skipped_dirs.append(item_name)
+            else: 
                  skipped_dirs.append(item_name)
 
 
             if should_convert:
                 nifti_filename = f"{item_name}.nii.gz"
                 nifti_path = nifti_out_dir / nifti_filename
-                # Add task: tuple(input_dir_path, output_nifti_path)
+                
                 tasks.append((full_path, nifti_path))
                 dirs_to_convert.append(item_name)
 
@@ -200,7 +203,7 @@ def raw_data_to_nifti_parallel(raw_path, scans_indicators=None, use_default=Fals
         print("No series found matching the criteria for conversion.")
         if skipped_dirs:
              print(f"Skipped directories based on indicators: {len(skipped_dirs)}")
-        return # Exit if no tasks
+        return 
 
     print(f"Found {len(tasks)} series to convert:")
     #for name in dirs_to_convert: print(f"  - {name}") # Uncomment for verbose listing
@@ -223,18 +226,18 @@ def raw_data_to_nifti_parallel(raw_path, scans_indicators=None, use_default=Fals
         # Submit all tasks. submit returns a Future object.
         future_to_input = {executor.submit(convert_single_series_to_nifti, task[0], task[1]): task[0] for task in tasks}
 
-        # Process results as they complete
+        
         for future in concurrent.futures.as_completed(future_to_input):
             input_dir = future_to_input[future]
             try:
                 result = future.result() # Get result (input_path, success_bool, output_path/error_msg)
                 results.append(result)
-                if result[1]: # Check success status
+                if result[1]:
                     successful_conversions += 1
                 else:
                     failed_conversions += 1
             except Exception as exc:
-                # Catch exceptions that might occur *during* future.result() or if the task itself raised an unexpected exception
+                
                 error_msg = f"Task for {input_dir.name} generated an exception: {exc}"
                 print(error_msg)
                 results.append((str(input_dir), False, error_msg))
@@ -267,8 +270,89 @@ def raw_data_to_nifti_parallel(raw_path, scans_indicators=None, use_default=Fals
 
 # To convert everything (use with caution, might include localizers, dose reports etc.):
 # raw_data_to_nifti_parallel('C:/dicom_raw_data', use_default=True, max_workers=12)
+
+# Blueprint for changing metadata of DICOM files, here just series description 
+# For more Keywords, tags see https://dicom.innolitics.com/ciods/rt-dose/patient/00100010
+def modify_metadata(dcm_file, backup=True, new_desc= '', new_name = ''):
+    try:
+        ds = pydicom.dcmread(dcm_file)
+        
+        # Create backup if requested
+        if backup:
+            ds.save_as(dcm_file.replace('.dcm', '_backup.dcm'))
+        
+        # Get acquisition number (default to empty string if not present)
+        acq_num = str(ds.get('AcquisitionNumber', ''))
+        study_id= (0x0020,0x0010)  #tags as names are unreliable
+        series_tag=(0x0021,0x1003) #tags as names are unreliable
+        patient_study_id= ds[study_id].value
+        patient_series= ds[series_tag].value
+        
+        series_desc = str(ds.get('SeriesDescription', '')) # Get current series description (default to empty string if not present)
+        patient_name = str(ds.get('	PatientName', ''))   # Get current patient name (default to empty string if not present)
+        # Modify series description, example change as needed or change for patient name if desired in the same format (skip if statement if not needed)
+        modified = False
+        if new_desc:
+            print(f"Updating SeriesDescription for: {dcm_file}")
+            ds.SeriesDescription = new_desc
+            modified = True
+
+        if new_name:
+            print(f"Updating PatientName for: {dcm_file}")
+            # Corrected attribute from 'Patientname' to 'PatientName' (case-sensitive)
+            # Corrected tag lookup typo from '\tPatientName' to 'PatientName'
+            ds.PatientName = new_name
+            modified = True
+            
+        # Save the file only if changes were made
+        if modified:
+            ds.save_as(dcm_file)
+            return True
+        else:
+            print(f"No new name or description provided for {dcm_file}. No changes made.")
+            return False
+        
+    except InvalidDicomError:
+        print(f"Error: {dcm_file} is not a valid DICOM file")
+        return False
+    except PermissionError:
+        print(f"Error: No write permissions for {dcm_file}")
+        return False
+    except Exception as e:
+        print(f"Unexpected error processing {dcm_file}: {str(e)}")
+        return False
+
+
+
+# Modifies all DICOMs in the given directory with the specific instructions given in modify_series_description so modify than accordingly especially the new_desc variable 
+
+def modify_dcms(directory_path, new_desc, new_name):
+    path= Path(directory_path)
+    mod_files = 0 
+    for root, dirs, files in os.walk(path):
+        print(root)
+        for file in files:
+            file_path= os.path.join(root, file)
+            if os.path.isfile(file_path):
+                modify_metadata(file_path, backup=False, new_desc=new_desc, new_name=new_name) 
+                mod_files += 1
+    print(mod_files)
+
+#Just a simple renamer function for the nnUNet convention without any LUT 
+def nifti_renamer(nii_path, prefix, suffix, number, file_mapping):
+    p=Path(nii_path)
+    dir= p.parent
+    filled_number = str(number+1).zfill(3)
+    newpath= os.path.join(dir,f"{prefix}"+filled_number+ f'{suffix}.nii.gz')
+    os.rename(nii_path, newpath)
+    file_mapping[os.path.basename(nii_path)] = {
+        "new_filename": os.path.basename(newpath),
+        "number": filled_number
+    }
+
+
 if __name__ == "__main__":
     from multiprocessing import freeze_support
     freeze_support()  # This is needed for Windows
     # Your function call here
-    raw_data_to_nifti_parallel(r"Q:\Studenten\Leonard Schumann\test firas\Data(MT1)", use_default=True, max_workers=12)   
+    raw_data_to_nifti_parallel(r"E:\test5\00002168", use_default=True, max_workers=12)   

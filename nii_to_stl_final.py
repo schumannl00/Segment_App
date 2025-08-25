@@ -11,7 +11,7 @@ import logging
 import json 
 import shutil
 import trimesh 
-
+from pathlib import Path 
 
 
 def smooth_mesh_pyvista(vertices, faces, method='taubin', n_iter=100, relaxation_factor=0.1):
@@ -397,22 +397,21 @@ def process_with_parameters(input_file, output_prefix, segment_params, additiona
         print(f"Saved segment {label} as '{output_label}' to {output_file} with {mesh_iterations} smoothing iterations")
 
 
-
+#example of parameters 
 segment_params_ftt = {
     1: {
         'label': "Fibula",
         'smoothing': 3.0,  
         'mesh_smoothing_method': 'taubin',
-        'mesh_smoothing_iterations': 250,  # Fewer iterations
-        'mesh_smoothing_factor': 0.1  # Gentler smoothing
+        'mesh_smoothing_iterations': 250,  
+        'mesh_smoothing_factor': 0.1  
     },
     2: {
         'label': "Talus" ,
         'smoothing': 3.0,
         'mesh_smoothing_method': 'taubin',
-        'mesh_smoothing_iterations': 250, # More iterations
-        'mesh_smoothing_factor': 0.1  # Stronger smoothing
-    
+        'mesh_smoothing_iterations': 250, 
+        'mesh_smoothing_factor': 0.1  
     },
     3: {
         'label': "Tibia",
@@ -422,7 +421,7 @@ segment_params_ftt = {
         'mesh_smoothing_factor': 0.1
 }
 }
-def process_directory( input_dir, output_root_dir,segment_params, fill_holes=0, file_mapping=None, split=False):
+def process_directory( input_dir, output_root_dir,segment_params, fill_holes=0, file_mapping=None, split=False, use_pymeshfix=True):
     for file_name in os.listdir(input_dir):
             if file_name.endswith(".nii.gz"):
                 print(file_name)
@@ -439,13 +438,64 @@ def process_directory( input_dir, output_root_dir,segment_params, fill_holes=0, 
                         output_dir += "_rechts"
                 os.makedirs(output_dir, exist_ok=True)
                 
-                # Call convert_nifti_to_stls for each file
+                
                 print(f"Processing file: {input_file}")
                 try:
-                    process_with_parameters(input_file, output_dir, segment_params, additional_name=file_number,fill_holes=fill_holes, use_pymeshfix=True)
+                    process_with_parameters(input_file, output_dir, segment_params, additional_name=file_number,fill_holes=fill_holes, use_pymeshfix=use_pymeshfix)
                 except Exception as e:
                     print(f"Failed to convert {input_file} due to str({e}) ")
 
+
+def stl_renamer_with_lut(stl_output_path : Path , file_mapping : dict ):
+    lookup = {coded["number"]: original_filename for original_filename, coded in file_mapping.items()}
+    renamed_dirs=[]
+    for item in os.listdir(stl_output_path):
+        item_path = os.path.join(stl_output_path, item)
+        
+      
+        if not os.path.isdir(item_path):
+            continue
+        
+        
+        if item.startswith('STL') and len(item) >= 6:
+            # Extract the number part (3 digits after 'STL')
+            number = item[3:6]
+            
+            # Rest of the directory name (if any)
+            rest_of_name = item[6:] if len(item) > 6 else ""
+                
+            # Check if number exists in lookup
+            if number in lookup:
+                original_name = lookup[number].replace(".nii.gz", "")
+                # Create new directory name (preserving any suffix)
+                new_dir_name = f"{original_name}{rest_of_name}"
+                new_dir_path = os.path.join(stl_output_path, new_dir_name)
+                try: 
+                    for file in os.listdir(item_path):
+                        old_file_path = os.path.join(item_path, file)
+                        if os.path.isfile(old_file_path):
+                            new_file_name = original_name + "_" + file
+                            new_file_path = os.path.join(item_path, new_file_name)
+                            shutil.move(old_file_path, new_file_path)
+
+                except Exception as e:
+                    print(f"{str(e)}")
+                try:
+                    # Check if destination already exists
+                    if os.path.exists(new_dir_path):
+                        logging.warning(f"Destination {new_dir_path} already exists. Skipping.")
+                        continue
+                    
+                    # Perform the rename operation using shutil.move
+                    logging.info(f"Renaming: {item_path} -> {new_dir_path}")
+                    shutil.move(item_path, new_dir_path)
+                    renamed_dirs.append((item, new_dir_name))
+                    
+                except Exception as e:
+                    logging.error(f"Error renaming {item_path}: {str(e)}")
+            else:
+                logging.warning(f"No matching original filename found for number {number}")
+
 if __name__ == "__main__":
-    process_directory(r"E:\OSG CT\Results\transfer\test artefakte\label",r"E:\OSG CT\Results\transfer\test artefakte\stls",segment_params=segment_params_ftt)
+    process_directory(r"E:\spikes\labels",r"E:\spikes\stl",segment_params=segment_params_ftt)
     

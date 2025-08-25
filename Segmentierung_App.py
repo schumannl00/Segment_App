@@ -23,75 +23,19 @@ from skimage import measure
 from scipy import ndimage
 import pyvista as pv
 from stl import mesh
-from nii_to_stl_final import convert_to_LPS, process_with_parameters, process_directory
-from transform_DICOM_to_nifti import DICOM_splitter, raw_data_to_nifti, nifti_renamer
+from nii_to_stl_final import convert_to_LPS, process_with_parameters, process_directory, stl_renamer_with_lut
 import shutil
 from leg_seperator import masking, zcut
-from multiprocessed import raw_data_to_nifti_parallel
+from multiprocessed import raw_data_to_nifti_parallel, nifti_renamer
+from modifier import merger 
 import ttkbootstrap as tb
 from ttkbootstrap.constants import *
 import logging
 
-id_dict = {
-    '111': {
-        'body_part': 'Sprunggelenk_gesund',
-        'Path_to_results': {'3d_fullres' : "Dataset111_gesund/nnUNetTrainer__nnUNetPlans__3d_fullres"},
-        'configurations': ['3d_fullres'],
-        'prefix' : "Syn_",
-        'suffix': '_0000'
-    },
-    '112': {
-        'body_part': 'Sprunggelenk_mixed',
-        'Path_to_results': {'3d_fullres' : "Dataset112_mixed/nnUNetTrainer__nnUNetPlans__3d_fullres"},
-        'configurations': ['3d_fullres'],
-        'prefix' : "Syn_",
-        'suffix': '_0000'
-    },
-    '113': {
-        'body_part': 'Sprunggelenk_beideFüße_DONT_USE',
-        'Path_to_results': {'3d_fullres' : 'TBA' },
-        'configurations': ['3d_fullres'],
-        'prefix' : "Syn_",
-        'suffix': '_0000'
-    },
-    '114':{
-      'body_part': 'Schulter',
-        'Path_to_results': {'3d_fullres' : "Dataset114_Schulter/nnUNetTrainer__nnUNetPlans__3d_fullres"},
-        'configurations': ['3d_fullres'],
-        'prefix' : "Sch_",
-        'suffix': '_0000'
-    },
-    '116': {
-        'body_part': 'Becken',
-        'Path_to_results': {'3d_fullres' : "Dataset116_Becken/nnUNetTrainer__nnUNetPlans__3d_fullres" },
-        'configurations': ['3d_fullres'],
-        'prefix' : "Bck_",
-        'suffix': '_0000'
-    }
-    }
-
-labels_dict = {
-    '111': {
-        1: "Fibula",
-        2: "Talus",
-        3: "Tibia"
-    },
-    '112': {
-         1: "Fibula",
-        2: "Talus",
-        3: "Tibia"
-    },
-    '113': {
-        1: 'Fibula links',
-        2: 'Fibula rechts',
-        3: 'Talus links',
-        4: 'Talus rechts',
-        5: 'Tibia links',
-        6: 'Tibia rechts'
-     },
-     '114': {1: 'Schulter'},
-     '116': {1: 'Becken'}
-}
+with open("ids.json", "r") as ids:
+    id_dict = json.load(ids)
+with open("labels.json", "r") as labels:
+    labels_dict = json.load(labels)
 
 # Default segment parameters -  smoothing for labelmap just removes salt-pepper noise, taubin maintains volume with  light smoothing-params to remove some steps\artifacts 
 default_segment_params = {
@@ -273,17 +217,18 @@ class ParameterGUI:
         self.folds_var = tk.StringVar(value="0,1,2,3,4")  # Default value of 5 folds
         self.folds_checkbuttons = []
         for i in range(5):
-            var = tk.BooleanVar(value=True)  # Default to selected
+            var = tk.BooleanVar(value=False)  # Default to selected
             check = tb.Checkbutton(self.folds_frame, text=f"Fold {i}", variable=var)
             check.grid(row=0, column=i, padx=5, pady=5)
             self.folds_checkbuttons.append((var, i))
 
         self.select_all_button = ttk.Button(self.folds_frame, text="Select All", command=self.select_all_folds)
-        self.select_all_button.grid(row=1, column=0, columnspan=5)
-
+        self.select_all_button.grid(row=1, column=0, columnspan=2, padx=15, pady=5)
+        self.deselect_all_button = ttk.Button(self.folds_frame, text= "Deselect all", command=self.deselect_all_folds, style= WARNING )
+        self.deselect_all_button.grid(row=1, column=2, columnspan=2, padx=15, pady=5 )
        #Row 6
         
-        preprocessing_frame = tb.LabelFrame(main_frame, text="Preprocessing Options", padding = "10", bootstyle= INFO)
+        preprocessing_frame = tb.LabelFrame(main_frame, text="Processing Options", padding = "10", bootstyle= INFO)
         preprocessing_frame.grid(row=2, column=1, columnspan=4, sticky=EW, pady=(0, 5), padx=5) # Use grid in main_frame
         # Configure grid columns *inside* the LabelFrame
         preprocessing_frame.columnconfigure(1, weight=1)
@@ -323,6 +268,11 @@ class ParameterGUI:
         self.multiple_ids_var = tk.BooleanVar(value=False)
         self.multiple_ids_check =tb.Checkbutton(preprocessing_frame, text="Does the Input Folder have indiviudual subfolders \n e.g. multiple patients? Use custom filters ('+' -Button) as  naming conventions might vary.", variable=self.multiple_ids_var)
         self.multiple_ids_check.grid(row=2, column=0, columnspan=6, sticky=W, pady=(0, 10))
+
+        #Row 9 
+        self.meshfix_var = tk.BooleanVar(value=False)
+        self.meshfix_check = tb.Checkbutton(preprocessing_frame, text= "Appply Pymesh meshrepair, caps open stls and removes small disconnected artifacts")
+        self.meshfix_check.grid(row=3, column=0, columnspan=6, sticky = W, pady=(0,10))
 
         # Button frame at the bottom
         button_frame = ttk.Frame(main_frame)
@@ -569,6 +519,9 @@ class ParameterGUI:
         """Select all folds in the fold checkboxes"""
         for var, i in self.folds_checkbuttons:
             var.set(True)
+    def deselect_all_folds(self):
+        for var, i in self.folds_checkbuttons:
+            var.set(False)
 
     def update_configurations(self, event):
         """Update the available configurations based on the selected ID"""
@@ -617,6 +570,7 @@ class ParameterGUI:
             lower = params['z-lower']
             upper = params['z-upper']
             cut_z = params['cut_z']
+            meshrepair = params["use_meshrepair"]
 
             # Ensure output directories exist
             os.makedirs(stl_output_path, exist_ok=True)
@@ -624,25 +578,7 @@ class ParameterGUI:
             #Step 0: Convert input directory into single folder if multiple selected
             if multiple: 
                 self.progress_queue.put(ProgressEvent(5, "Merging multiple folders..."))
-                root_dir= input_path
-                target_dir= Path(input_path.parent)/ 'merged'
-                os.makedirs(target_dir, exist_ok=True)
-                processed_files = 0 
-                for root, dirs, files in os.walk((os.path.normpath(root_dir)), topdown=False):
-                    rel_path = os.path.relpath(root, root_dir)
-                    for name in files: # removed dcm failsafe
-                        processed_files += 1
-                        if rel_path != "":
-                            path_prefix=rel_path.replace(os.sep, "_")
-                            new_name = F"{path_prefix}_{name}"
-                        else:
-                            new_name = name 
-                        source_file = os.path.join(root, name)
-                        target_file = os.path.join(target_dir, new_name)
-                        shutil.copy2(source_file, target_file)
-                    print("files merged")
-                print(processed_files)
-                input_path= target_dir
+                input_path= merger(input_path)
             # Step 1: Convert DICOM to NIfTI 
             self.progress_queue.put(ProgressEvent(15, "Converting DICOM to NIfTI..."))
             #raw_data_to_nifti(input_path, scans_indicators=scan_indicators, use_default = use_default)
@@ -650,7 +586,7 @@ class ParameterGUI:
             # Step 2: Process NIfTI files - get files to process
             self.progress_queue.put(ProgressEvent(30, "Processing NIfTI files..."))
             #length = len(list((Path(params["Input Path"]).iterdir())))
-            interference_path = os.path.join(str(input_path.parent),r'NIFTI')
+            inference_path = os.path.join(str(input_path.parent),r'NIFTI')
            
             if cut_z:
                 try:
@@ -665,8 +601,8 @@ class ParameterGUI:
                         messagebox.showerror("Error", "Upper bound must be greater than lower bound")
                         return
                     
-                    for folder in os.listdir(interference_path):
-                        zcut(os.path.join(interference_path,folder),lower,upper)
+                    for folder in os.listdir(inference_path):
+                        zcut(os.path.join(inference_path,folder),lower,upper)
                 
                 except Exception as e:
                     messagebox.showerror("The NIFTIs cannot be cut along the z-axis, str({e}).")
@@ -678,8 +614,8 @@ class ParameterGUI:
            
             self.progress_queue.put(ProgressEvent(40, "Renaming NIfTI files..."))
             file_mapping = {}
-            for i, folder in enumerate(os.listdir(interference_path)):
-                nifti_renamer(os.path.join(interference_path,folder), prefix=prefix, suffix=suffix, number=i, file_mapping=file_mapping)
+            for i, folder in enumerate(os.listdir(inference_path)):
+                nifti_renamer(os.path.join(inference_path,folder), prefix=prefix, suffix=suffix, number=i, file_mapping=file_mapping)
             json_path = os.path.join(input_path.parent, 'decoder.json')
             with open(json_path, 'w') as json_file:
                 json.dump(file_mapping, json_file, indent=4)
@@ -715,7 +651,7 @@ class ParameterGUI:
         
             self.progress_queue.put(ProgressEvent(60, "Running segmentation..."))
             predictor.predict_from_files(
-                str(interference_path), 
+                str(inference_path), 
                 str(labelmap_output_path),
                 save_probabilities=False,
                 overwrite=False,
@@ -735,59 +671,10 @@ class ParameterGUI:
             self.progress_queue.put(ProgressEvent(80, "Converting segmentations to STL..."))
             
             # Get label files from the output directory
-            process_directory(labelmap_output_path, stl_output_path, segment_params=segment_params[selected_id], file_mapping=file_mapping, split=split)
+            process_directory(labelmap_output_path, stl_output_path, segment_params=segment_params[selected_id], file_mapping=file_mapping, split=split, use_pymeshfix=meshrepair)
             
             self.progress_queue.put(ProgressEvent(90, "Converting STL names back to original names..."))
-            lookup = {coded["number"]: original_filename for original_filename, coded in file_mapping.items()}
-            
-            renamed_dirs=[]
-            for item in os.listdir(stl_output_path):
-                item_path = os.path.join(stl_output_path, item)
-                
-                # Skip if not a directory
-                if not os.path.isdir(item_path):
-                    continue
-                
-                # Check if directory starts with 'STL' and has at least 3 more characters
-                if item.startswith('STL') and len(item) >= 6:
-                    # Extract the number part (3 digits after 'STL')
-                    number = item[3:6]
-                    
-                    # Rest of the directory name (if any)
-                    rest_of_name = item[6:] if len(item) > 6 else ""
-                        
-                    # Check if number exists in lookup
-                    if number in lookup:
-                        original_name = lookup[number].replace(".nii.gz", "")
-                        # Create new directory name (preserving any suffix)
-                        new_dir_name = f"{original_name}{rest_of_name}"
-                        new_dir_path = os.path.join(stl_output_path, new_dir_name)
-                        try: 
-                            for file in os.listdir(item_path):
-                                old_file_path = os.path.join(item_path, file)
-                                if os.path.isfile(old_file_path):
-                                    new_file_name = original_name + "_" + file
-                                    new_file_path = os.path.join(item_path, new_file_name)
-                                    shutil.move(old_file_path, new_file_path)
-
-                        except Exception as e:
-                            print(f"{str(e)}")
-                        try:
-                            # Check if destination already exists
-                            if os.path.exists(new_dir_path):
-                                logging.warning(f"Destination {new_dir_path} already exists. Skipping.")
-                                continue
-                            
-                            # Perform the rename operation using shutil.move
-                            logging.info(f"Renaming: {item_path} -> {new_dir_path}")
-                            shutil.move(item_path, new_dir_path)
-                            renamed_dirs.append((item, new_dir_name))
-                            
-                        except Exception as e:
-                            logging.error(f"Error renaming {item_path}: {str(e)}")
-                    else:
-                        logging.warning(f"No matching original filename found for number {number}")
-
+            stl_renamer_with_lut(stl_output_path=stl_output_path, file_mapping=file_mapping)
             self.progress_queue.put(ProgressEvent(100, "Processing complete!", completed=True))
             
             return True
@@ -852,7 +739,8 @@ class ParameterGUI:
             'Multiple': self.multiple_ids_var.get(),
             'z-lower': self.lower_var.get(),
             'z-upper': self.upper_var.get(),
-            'cut_z': self.enable_zcut.get()
+            'cut_z': self.enable_zcut.get(),
+            'use_meshrepair': self.meshfix_var.get()
         }
 
         # Show summary of parameters
