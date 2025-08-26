@@ -98,7 +98,8 @@ The application generates:
 - STL files for 3D printing
 - A `decoder.json` file mapping the, for the segmentation, renamed files to the original ones.
 
-##Json examples 
+## Json examples 
+
 
 ## Explanation for certain choices
 
@@ -129,11 +130,8 @@ Please open an issue on GitHub with:
 
 Contributions are welcome! Please feel free to submit a Pull Request.
 
-## License
 
-[Insert your license information here]
 
 ## Acknowledgments
 
 - The nnUNet framework developers for their excellent segmentation architecture
-- Contributors to the various Python packages used in this project
