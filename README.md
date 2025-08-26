@@ -6,17 +6,17 @@ A GUI-based application for medical image segmentation using the nnUNet framewor
 
 This tool provides an end-to-end pipeline for medical image segmentation:
 1. DICOM to NIfTI conversion
-2. Optional pre-processing ("splitting" into left/right, Z-axis cutting)
+2. Optional processing ("splitting" into left/right, Z-axis cutting, mesh-repair)
 3. nnUNet-based automatic segmentation
 4. 3D model generation in STL format
 
-The application is designed to be user-friendly with a GUI interface that supports drag-and-drop functionality, customizable segmentation parameters, and light batch processing capabilities.
+The application is designed to be user-friendly with a GUI interface that supports drag-and-drop functionality, customizable segmentation parameters, and batch processing capabilities.
 
 ## Features
 
 - **User-friendly GUI** with drag-and-drop support
 - **DICOM filtering** by series description to select specific scans as everything above 1mm slice thickness 
-- **Pre-trained models** for various body parts:
+- ** Tested for different models** for various body parts:
   - Ankle (healthy and post op)
   - Shoulder
   - Pelvis
@@ -24,7 +24,7 @@ The application is designed to be user-friendly with a GUI interface that suppor
   - Left/right splitting for bilateral structures
   - Z-axis cutting for region-of-interest focus
   - Multi-patient folder processing
-- **Customizable segmentation parameters** for each anatomical structure
+- **Customizable smoothing parameters** for each anatomical structure
 - **STL export** with adjustable smoothing parameters
 - **Progress tracking** during processing
 
@@ -55,7 +55,7 @@ export nnUNet_results="/path/to/nnUNet_results"
 ```
 
 ## Usage
-
+0. Add paths for label and id jsons which need structuring as in the examaple
 1. Launch the application:
    ```bash
    python segment_app.py
@@ -68,10 +68,7 @@ export nnUNet_results="/path/to/nnUNet_results"
 3. Select scan indicators or use "Don't filter" for processing all series
 
 4. Choose dataset ID and configuration:
-   - ID 111: Healthy ankle
-   - ID 112: Post operation ankle with plates and screws
-   - ID 114: Shoulder
-   - ID 116: Pelvis
+  - either via ID or name 
 
 5. Select configuration and folds
 
@@ -87,21 +84,11 @@ export nnUNet_results="/path/to/nnUNet_results"
 ## Customizing Segment Parameters
 
 Click "Edit Segment Params" to customize parameters for each anatomical structure:
-- `smoothing`: Overall smoothing factor (0.0-1.0)
-- `mesh_smoothing_method`: Method used for mesh smoothing ( 'taubin')
+- `smoothing`: Labelmap smoothing factor (Gaussian smoothing: 1.0-3.0)
+- `mesh_smoothing_method`: Method used for mesh smoothing ( 'taubin'): PyVista implementation as WindowedSync
 - `mesh_smoothing_iterations`: Number of smoothing iterations
-- `mesh_smoothing_factor`: Strength of smoothing per iteration
+- `mesh_smoothing_factor`: Strength of smoothing per iteration (pass-band: smaller value equals stronger smoothing, default 0.1 recommended)
 
-## Pre-trained Models
-
-The tool comes with several pre-trained models:
-
-| ID  | Body Part          | Configuration | Description                  |
-|-----|-------------------|---------------|------------------------------|
-| 111 | Ankle (healthy)   | 3d_fullres    | Healthy ankle segmentation   |
-| 112 | Ankle (mixed)     | 3d_fullres    | Ankle sgementation post op   |
-| 114 | Shoulder          | 3d_fullres    | Shoulder segmentation        |
-| 116 | Pelvis            | 3d_fullres    | Pelvis segmentation          |
 
 ## Output Files
 
@@ -109,7 +96,9 @@ The application generates:
 - NIfTI files from DICOM data
 - Segmentation label maps
 - STL files for 3D printing
-- A `decoder.json` file mapping the, for the segmentation, renamed files to the original ones. 
+- A `decoder.json` file mapping the, for the segmentation, renamed files to the original ones.
+
+##Json examples 
 
 ## Explanation for certain choices
 
