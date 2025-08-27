@@ -100,7 +100,25 @@ The application generates:
 
 ## Json examples 
 
-
+ids_dict = {
+    "111": {
+        "body_part": "ankle,
+        "Path_to_results": {
+            "3d_fullres": "Dataset111_ankle/nnUNetTrainer__nnUNetPlans__3d_fullres"  #patch in the results folder, add more config if available
+        },
+        "configurations": [
+           "3d_fullres"  
+        ],
+        "prefix": "",   
+        "suffix": "_0000"   #no autamtic renaming for different modalities included as we exclusively worked with CT images 
+    }
+, } 
+labels_dict {
+    "111": {
+        "1": "Fibula",
+        "2": "Talus",
+        "3": "Tibia"
+    },} 
 ## Explanation for certain choices
 
 The filtering via the Series Description is optional. It will just get Exceptions for files it cannot transform, which usually are exam summaries or dosis infos. If there are a lot of scans for a patient, it is still advised to use the one with the smallest slice thickness as it will reduce steps in the stls. 
