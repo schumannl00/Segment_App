@@ -100,7 +100,7 @@ The application generates:
 
 ## Json examples 
 
-ids_dict = {
+ids_dict : {
     "111": {
         "body_part": "ankle,
         "Path_to_results": {
@@ -113,7 +113,7 @@ ids_dict = {
         "suffix": "_0000"   #no autamatic renaming for different modalities included as we exclusively worked with CT images 
     }
 , } <br>
-labels_dict {
+labels_dict: {
     "111": {
         "1": "Fibula",
         "2": "Talus",
