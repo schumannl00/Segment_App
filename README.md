@@ -104,13 +104,13 @@ ids_dict = {
     "111": {
         "body_part": "ankle,
         "Path_to_results": {
-            "3d_fullres": "Dataset111_ankle/nnUNetTrainer__nnUNetPlans__3d_fullres"  #patch in the results folder, add more config if available
+            "3d_fullres": "Dataset111_ankle/nnUNetTrainer__nnUNetPlans__3d_fullres"  #path in the results folder, add more configs if available
         },
         "configurations": [
            "3d_fullres"  
         ],
         "prefix": "",   
-        "suffix": "_0000"   #no autamtic renaming for different modalities included as we exclusively worked with CT images 
+        "suffix": "_0000"   #no autamatic renaming for different modalities included as we exclusively worked with CT images 
     }
 , } <br>
 labels_dict {
