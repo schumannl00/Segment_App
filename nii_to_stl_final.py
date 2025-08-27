@@ -496,6 +496,15 @@ def stl_renamer_with_lut(stl_output_path : Path , file_mapping : dict ):
             else:
                 logging.warning(f"No matching original filename found for number {number}")
 
+segment_params_pelvis = {
+    1: {
+        'label': "Becken",
+        'smoothing': 3.0,  
+        'mesh_smoothing_method': 'taubin',
+        'mesh_smoothing_iterations': 250,  
+        'mesh_smoothing_factor': 0.1  
+    }}
+
 if __name__ == "__main__":
-    process_directory(r"E:\spikes\labels",r"E:\spikes\stl",segment_params=segment_params_ftt)
+    process_directory(r"E:\becken2\label",r"E:\becken2\stl",segment_params=segment_params_pelvis)
     

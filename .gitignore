@@ -1,5 +1,5 @@
 misc/
 ids.json
 labels.json
-transform_DICOM_to_nifty.py
+transform_DICOM_to_nifti.py
 /__pycache__/

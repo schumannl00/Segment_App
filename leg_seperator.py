@@ -8,44 +8,6 @@ import pathlib
 from pathlib import Path
 
 
-
-def separator(path):
-    nii=load(path)
-    suffix_rechts = 'rechts'
-    suffix_links= 'links'
-    x_idx_range_rechts=slice(0, nii.shape[0]//2)
-    x_idx_range_links = slice(nii.shape[0]//2 ,nii.shape[0])
-    y_idx_range = slice(0,nii.shape[1])
-    z_idx_range = slice(0,nii.shape[2])
-    roi_rechts = np.asarray(nii.dataobj[x_idx_range_rechts,y_idx_range,z_idx_range])
-    roi_links= np.asarray(nii.dataobj[x_idx_range_links,y_idx_range,z_idx_range])
-    img_rechts = Nifti1Image(roi_rechts, affine=nii.affine)
-    img_links = Nifti1Image(roi_links, affine=nii.affine)
-    basename, ext = nii.get_filename().split(os.extsep, 1)
-    out_name_rechts = f'{basename}_{suffix_rechts}.{ext}'
-    out_name_links = f'{basename}_{suffix_links}.{ext}'
-    save(img_rechts, out_name_rechts)
-    save(img_links, out_name_links)
-    os.remove(path)
-
-#leg_separator(r"D:\Patienten\PAT 57\NIFTI\0.67 mm_x, iDose (2).nii.gz")
-#leg_separator(r"D:\nnUNet_raw\Dataset111_gesund\imagesTr\Syn_017_0000.nii.gz")
-
-def cutter(seg_path,img_path):
-    nii1=load(seg_path)
-    nii2=load(img_path)
-    suffix='cut'
-    x_range=slice(0,nii2.shape[0])
-    y_range =slice(0,nii2.shape[1])
-    z_range= slice(0,nii2.shape[2])
-   
-    roi = np.asarray(nii1.dataobj[x_range,y_range,z_range])
-    img= Nifti1Image(roi,affine=nii1.affine)
-    basename, ext = nii1.get_filename().split(os.extsep, 1)
-    out_name= f'{basename}_{suffix}.{ext}'
-    save(img, out_name)
-
-#cutter(r"D:\nnUNet_raw\Dataset111_gesund\labelsTr\Syn_004.nii.gz", r"D:\nnUNet_raw\Dataset111_gesund\imagesTr\Syn_004_0000.nii.gz")
 #img1=nib.load(r"D:\nnUNet_raw\Dataset111_gesund\labelsTr\Syn_015.nii.gz")
 #img2=nib.load(r"D:\nnUNet_raw\Dataset111_gesund\imagesTr\Syn_015_0000.nii.gz")
 #print(img1.shape)
@@ -74,7 +36,7 @@ def cut(nii_path1, nii_path2, lower, upper, dump_folder):
     save(img1, out_name1)
     save(img2, out_name2)
   
-def zcut(nii_path, lower, upper):
+def zcut(nii_path : str, lower : int, upper : int , keep_original: bool, backup_dir : str ) -> None :
     nii = load(nii_path)
     suffix = "cut"
     x_range=slice(0,nii.shape[0])
@@ -83,11 +45,20 @@ def zcut(nii_path, lower, upper):
     upper = min(upper, max_z)
     cut_z_range = slice(lower, upper)
     roi = np.asarray(nii.dataobj[x_range,y_range,cut_z_range])
-    img = Nifti1Image(roi, affine = nii.affine)
+    affine = nii.affine.copy()
+    if lower > 0:
+        offset = np.array([0, 0, lower, 1])
+        new_origin = nii.affine @ offset
+        affine[:3, 3] = new_origin[:3]
+    img = Nifti1Image(roi, affine=affine)
     basename, ext = nii.get_filename().split(os.extsep, 1)
     out_name= f'{basename}_{suffix}.{ext}'
     save(img, out_name)
-    os.remove(nii_path)
+    if keep_original:
+        backup_dir= backup_dir
+        os.makedirs(backup_dir, exist_ok=True)
+        shutil.move(nii_path, backup_dir)
+    else: os.remove(nii_path)
 
 def masking(nii_path):
     nib.openers.Opener.default_compresslevel = 9
