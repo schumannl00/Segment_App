@@ -68,7 +68,7 @@ class ParameterGUI:
     def __init__(self, root):
         self.root = root
         self.root.title("Parameter Input GUI for nnUNet segmentation")
-        self.root.geometry("1000x650")
+        self.root.geometry("1100x650")
         self.style = tb.Style(theme='superhero') 
          # Create a queue for thread communication
         self.progress_queue = queue.Queue()
@@ -249,7 +249,9 @@ class ParameterGUI:
         enable_checkbox.grid(row=1, column=0, sticky=W, pady=5, padx = 5)
         
         # Z-range parameters (single row, two columns)
-       
+        self.keep_originals= tk.BooleanVar(value=False)
+        keep_originals_checkbox = tb.Checkbutton(preprocessing_frame, text="Keep originals", variable=self.keep_originals)
+        keep_originals_checkbox.grid(row=1, column=1, sticky=W, pady=5, padx=5)
         # Lower bound
         ttk.Label(preprocessing_frame, text="Lower:").grid(row=1, column=2, sticky=E, pady=(0, 10), padx=(0, 5))
         self.lower_var = tk.StringVar(value="0")
@@ -271,7 +273,7 @@ class ParameterGUI:
 
         #Row 9 
         self.meshfix_var = tk.BooleanVar(value=False)
-        self.meshfix_check = tb.Checkbutton(preprocessing_frame, text= "Appply Pymesh meshrepair, caps open stls and removes small disconnected artifacts")
+        self.meshfix_check = tb.Checkbutton(preprocessing_frame, text= "Appply Pymesh meshrepair, caps open stls and removes small disconnected artifacts", variable=self.meshfix_var)
         self.meshfix_check.grid(row=3, column=0, columnspan=6, sticky = W, pady=(0,10))
 
         # Button frame at the bottom
@@ -570,6 +572,7 @@ class ParameterGUI:
             lower = params['z-lower']
             upper = params['z-upper']
             cut_z = params['cut_z']
+            keep_originals= params["keep_originals"]
             meshrepair = params["use_meshrepair"]
 
             # Ensure output directories exist
@@ -602,7 +605,7 @@ class ParameterGUI:
                         return
                     
                     for folder in os.listdir(inference_path):
-                        zcut(os.path.join(inference_path,folder),lower,upper)
+                        zcut(os.path.join(inference_path,folder),lower,upper, keep_original=keep_originals, backup_dir=input_path.parent/"uncut_nii")
                 
                 except Exception as e:
                     messagebox.showerror("The NIFTIs cannot be cut along the z-axis, str({e}).")
@@ -673,7 +676,7 @@ class ParameterGUI:
             # Get label files from the output directory
             process_directory(labelmap_output_path, stl_output_path, segment_params=segment_params[selected_id], file_mapping=file_mapping, split=split, use_pymeshfix=meshrepair)
             
-            self.progress_queue.put(ProgressEvent(90, "Converting STL names back to original names..."))
+            self.progress_queue.put(ProgressEvent(90, "STL names back to original names..."))
             stl_renamer_with_lut(stl_output_path=stl_output_path, file_mapping=file_mapping)
             self.progress_queue.put(ProgressEvent(100, "Processing complete!", completed=True))
             
@@ -740,6 +743,7 @@ class ParameterGUI:
             'z-lower': self.lower_var.get(),
             'z-upper': self.upper_var.get(),
             'cut_z': self.enable_zcut.get(),
+            'keep_originals' : self.keep_originals.get(),
             'use_meshrepair': self.meshfix_var.get()
         }
 
