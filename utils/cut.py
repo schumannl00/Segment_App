@@ -1,0 +1,93 @@
+import os
+import shutil
+import numpy as np
+from nibabel import load, save, Nifti1Image
+from pathlib import Path
+
+def cut_volume(
+    nii_path: str,
+    lower: tuple[int | None, int | None, int | None],
+    upper: tuple[int | None, int | None, int | None], 
+    keep_original: bool,
+    destination_dir: str,
+    localiser : str = "cut" , 
+) -> str:
+    """
+    Cut a NIfTI volume along x, y, z axes.
+
+    Parameters
+    ----------
+    nii_path : str
+        Path to NIfTI file.
+    lower : tuple
+        Lower bounds (x, y, z). Use None or 0 to leave axis uncut from below.
+    upper : tuple
+        Upper bounds (x, y, z). Use None to leave axis uncut from above.
+    keep_original : bool
+        If True, move original to backup_dir. If False, delete original.
+    backup_dir : str
+        Directory for backup if keep_original is True.
+    """
+    os.makedirs(destination_dir, exist_ok = True)
+    nii = load(nii_path)
+    shape = nii.shape[:3]
+
+
+    slicers = []
+    for ax in range(3):
+        lo = 0 if (lower[ax] is None) else lower[ax]
+        hi = shape[ax] if (upper[ax] is None) else min(upper[ax], shape[ax])
+        slicers.append(slice(lo, hi))
+
+    roi = np.asarray(nii.dataobj[tuple(slicers)])
+    affine = nii.affine.copy()
+
+
+    offset = np.array([
+        0 if lower[0] is None else lower[0],
+        0 if lower[1] is None else lower[1],
+        0 if lower[2] is None else lower[2],
+        1
+    ], dtype=float)
+    if np.any(offset[:3] > 0):
+        new_origin = nii.affine @ offset
+        affine[:3, 3] = new_origin[:3]
+
+    p = Path(nii_path)
+    out_path = Path(destination_dir)/ f"{p.stem}_{localiser}{''.join(p.suffixes)}"
+    img = Nifti1Image(roi, affine=affine)
+    save(img, str(out_path))
+
+    if not keep_original:
+        os.remove(nii_path)
+      
+        
+    return str(out_path)
+
+def sep(nii_path : str, x_cut : int,  destination_dir : str ): 
+    # Right half (array left → anatomy right)
+    right_file = cut_volume(
+        nii_path=nii_path,
+        lower=(None, None, None),
+        upper=(x_cut, None, None),
+        keep_original=True,
+        destination_dir= destination_dir,
+        localiser="right"
+    )
+    print("right done")
+    # Left half (array right → anatomy left)
+    left_file = cut_volume(
+        nii_path=nii_path,
+        lower=(x_cut, None, None),
+        upper=(None, None, None),
+        keep_original=True,
+        destination_dir= destination_dir,
+        localiser="left"
+    )
+    print("finished")
+
+    return left_file, right_file
+
+
+sep(r"Q:\Studenten\Leonard Schumann\dicoms\53\NIFTI\4375551_Köhler^Michael_3mm A.nii.gz", x_cut=250, destination_dir= r"Q:\Studenten\Leonard Schumann\dicoms\53\split")
+#cut_volume(r"\\wsl.localhost\Ubuntu\home\schumannl\datasets\TEST_WB\nii\Spi_001_0000_res.nii.gz", lower=(None,None, 1092), upper= (None,None, None), keep_original=True, destination_dir=r"\\wsl.localhost\Ubuntu\home\schumannl\datasets\TEST_WB\nii", localiser="upper")

@@ -1,6 +1,7 @@
 import os
 import shutil 
 from pathlib import Path 
+from multiprocessed import raw_data_to_nifti_parallel
 
 def merger(root_dir):
     target_dir= Path(root_dir.parent)/ 'merged'
@@ -8,7 +9,7 @@ def merger(root_dir):
     processed_files = 0 
     for root, dirs, files in os.walk((os.path.normpath(root_dir)), topdown=False):
         rel_path = os.path.relpath(root, root_dir)
-        for name in files: # removed dcm failsafe
+        for name in files: # removed dcm failsafe as Data from e.g. Sectra is missing the .dcm file extensions for some reason
             processed_files += 1
             if rel_path != "":
                 path_prefix=rel_path.replace(os.sep, "_")
@@ -20,3 +21,4 @@ def merger(root_dir):
             shutil.copy2(source_file, target_file)
     print(processed_files)
     return target_dir
+

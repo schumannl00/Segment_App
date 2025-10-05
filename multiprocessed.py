@@ -8,14 +8,18 @@ import concurrent.futures
 import time # For potential timing/debugging
 from dicom2nifti import settings
 from pydicom.errors import InvalidDicomError
-
+import json
 
 settings. disable_validate_slice_increment()
 
 def build_pattern(indicator):
-    pattern = re.escape(indicator)
-    pattern = re.sub(r'\\,', r'\\s*,\\s*', pattern)  # Handle commas
-    return re.compile(r"(?<!\w)" + pattern + r"(?!\w)", re.IGNORECASE)
+    parts = re.split(r'\s+', indicator.strip())
+    parts = [part for part in parts if part]
+    escaped_parts = [re.escape(part) for part in parts]
+    separator_pattern = r'[\s_,]+'
+    pattern_core = separator_pattern.join(escaped_parts)
+    #final_pattern = r"(?<!\w)" + pattern_core + r"(?!\w)"
+    return re.compile(pattern_core, re.IGNORECASE)
 
 
 def DICOM_splitter(path):
@@ -47,7 +51,7 @@ def DICOM_splitter(path):
 
                 # Determine Patient ID (handle missing attribute)
                 if hasattr(read_file, 'PatientID') and read_file.PatientID:
-                    file_series_id = str(read_file.PatientID).strip()
+                    file_series_id = re.sub(r'[\\/*?:"<>|_]', '-', str(read_file.PatientID).strip())
                 elif hasattr(read_file, 'PatientName') and read_file.PatientName:
                     # Use PatientName as fallback, sanitize it for path usage
                     file_series_id = re.sub(r'[\\/*?:"<>|_]', '-', str(read_file.PatientName).strip())
@@ -61,11 +65,12 @@ def DICOM_splitter(path):
                 file_series_description = str(getattr(read_file, 'SeriesDescription', 'UnknownSeries')).strip()
                 # Sanitize description for path usage
                 file_series_description = re.sub(r'[\\/*?:"<>|]', '_', file_series_description)
+                file_series_description = re.sub(r'\s+', '_', file_series_description)
                 if not file_series_description:
                     file_series_description = "UnknownSeries"
 
                 
-                target_dir_name = f"{file_series_id}_{file_PatientName}_{file_series_description}"  
+                target_dir_name = f"{file_PatientName}_{file_PatientName}_{file_series_description}"  
                 description_path = sort_dir / target_dir_name
 
                 
@@ -172,25 +177,21 @@ def raw_data_to_nifti_parallel(raw_path, scans_indicators=None, use_default=Fals
     for item_name in os.listdir(sort_dir):
         full_path = sort_dir / item_name
         if full_path.is_dir():
-    
+            parts = item_name.split("_")
             should_convert = False
             if use_default:
                 should_convert = True
-            elif patterns: 
-                if len(item_name.split("_"))>3:
-                    name= item_name.split("_")[2]
-                    for i in range(3,len(item_name.split("_"))):
-                            name += "_"+ item_name.split("_")[i]
-                    if any(pattern.search(name) for pattern in patterns):
-                        should_convert = True
-                    else:  skipped_dirs.append(item_name)
-                elif any(pattern.search(item_name.split("_")[2]) for pattern in patterns):
-                     should_convert = True
-                else:
-                     skipped_dirs.append(item_name)
-            else: 
-                 skipped_dirs.append(item_name)
-
+            elif patterns and len(parts) >= 3:
+                series_description_from_name = "_".join(parts[2:])  # The description is everything from the 3rd element onwards, joined by underscores
+                if patterns and any(p.search(series_description_from_name) for p in patterns):
+                    should_convert = True
+            elif len(parts) < 3:
+                print(f"Unexpected name format {item_name}")
+                skipped_dirs.append(item_name)
+            else:
+                # The directory name format is unexpected, so we skip it
+                print(f"Skipping directory with unexpected name format: {item_name}")
+                skipped_dirs.append(item_name)
 
             if should_convert:
                 nifti_filename = f"{item_name}.nii.gz"
@@ -289,7 +290,7 @@ def modify_metadata(dcm_file, backup=True, new_desc= '', new_name = ''):
         patient_series= ds[series_tag].value
         
         series_desc = str(ds.get('SeriesDescription', '')) # Get current series description (default to empty string if not present)
-        patient_name = str(ds.get('	PatientName', ''))   # Get current patient name (default to empty string if not present)
+        patient_name = str(ds.get('PatientName', ''))   # Get current patient name (default to empty string if not present)
         # Modify series description, example change as needed or change for patient name if desired in the same format (skip if statement if not needed)
         modified = False
         if new_desc:
@@ -355,4 +356,10 @@ if __name__ == "__main__":
     from multiprocessing import freeze_support
     freeze_support()  # This is needed for Windows
     # Your function call here
-    raw_data_to_nifti_parallel(r"E:\test5\00002168", use_default=True, max_workers=12)   
+    from pathlib import Path
+
+    base = Path(r"Q:\Studenten\Leonard Schumann\dicoms")
+
+    for i in range(6, 54):
+        path = base / str(i) / "dicoms"
+        raw_data_to_nifti_parallel(Path(path), use_default=True)
