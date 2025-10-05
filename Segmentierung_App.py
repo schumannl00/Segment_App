@@ -272,7 +272,7 @@ class ParameterGUI:
         self.multiple_ids_check.grid(row=2, column=0, columnspan=6, sticky=W, pady=(0, 10))
 
         #Row 9 
-        self.meshfix_var = tk.BooleanVar(value=False)
+        self.meshfix_var = tk.BooleanVar(value=True)
         self.meshfix_check = tb.Checkbutton(preprocessing_frame, text= "Appply Pymesh meshrepair, caps open stls and removes small disconnected artifacts", variable=self.meshfix_var)
         self.meshfix_check.grid(row=3, column=0, columnspan=6, sticky = W, pady=(0,10))
 
@@ -450,9 +450,11 @@ class ParameterGUI:
 
     def toggle_zcut_inputs(self):
         if self.enable_zcut.get():
+            
             self.lower_entry["state"] = "normal"
             self.upper_entry["state"] = "normal"
         else:
+            
             self.lower_entry["state"] = "disabled"
             self.upper_entry["state"] = "disabled"
     

@@ -327,15 +327,53 @@ def process_with_parameters(input_file, output_prefix, segment_params, additiona
         mesh_factor = params.get('mesh_smoothing_factor', 0.1)
         
         # Volume smoothing
-        binary_segment = (nii_data == label)
+        # Method 1: Direct integer comparison (works for integer arrays)
+        binary_segment = (nii_data == int(label))
+        segment_voxel_count = np.sum(binary_segment)
+        print("Used casing to int")
+        # Method 2: If direct comparison fails, try rounding first (handles float labels)
+        if segment_voxel_count == 0:
+            binary_segment = (np.round(nii_data).astype(int) == int(label))
+            segment_voxel_count = np.sum(binary_segment)
+            if segment_voxel_count > 0:
+                print(f"  ✓ Found {segment_voxel_count} voxels using rounded comparison")
+        
+        # Method 3: Float comparison with tolerance (handles precision issues)
+        if segment_voxel_count == 0:
+            binary_segment = np.isclose(nii_data, float(label), rtol=1e-5, atol=1e-8)
+            segment_voxel_count = np.sum(binary_segment)
+            if segment_voxel_count > 0:
+                print(f"  ✓ Found {segment_voxel_count} voxels using float tolerance comparison")
+        
+        print(f"Segment {label} final voxel count: {segment_voxel_count}")
+        
+        if segment_voxel_count == 0:
+            print(f"  ✗ No voxels found with label {label} using any method")
+            print(f"  Available labels in file: {np.unique(nii_data)}")
+            continue
+
         if fill_holes > 0:
              binary_segment = fill_holes_3d(binary_segment)
+
         smoothed_segment = ndimage.gaussian_filter(binary_segment.astype(float), 
                                                  sigma=volume_smoothing)
         binary_smooth = smoothed_segment > 0.5
+
+        print(f"Smoothed segment range: [{binary_smooth.min()}, {binary_smooth.max()}]")
+        print(f"Unique values after thresholding: {np.unique(binary_smooth)}")
         
+        # More robust validation
+        if np.sum(binary_smooth) == 0:
+            print(f"Skipping label {label}: no voxels after smoothing and thresholding")
+            continue
+
         # Generate surface mesh
-        verts, faces, _, _ = measure.marching_cubes(binary_smooth, level=0.5,)
+        try:
+            verts, faces, _, _ = measure.marching_cubes(binary_smooth, level=0.5)
+            print(f"Marching cubes successful: {len(verts)} vertices, {len(faces)} faces")
+        except Exception as e:
+            print(f"Marching cubes failed for label {label}: {e}")
+            continue
         
         if fill_holes > 0:
             print(f"Analyzing holes for segment {label} ('{output_label}'):")
@@ -347,7 +385,7 @@ def process_with_parameters(input_file, output_prefix, segment_params, additiona
                 print(f"Suggested fill_holes value: {suggested_fill_size:.2f}")
 
 
-
+        print("Made it through marching cubes")
         #This should fix the shifting issue
         affine = nii_img.affine  # Get the transform matrix
         verts = np.hstack([verts, np.ones((verts.shape[0], 1))])  # Add homogeneous coordinate
@@ -505,6 +543,37 @@ segment_params_pelvis = {
         'mesh_smoothing_factor': 0.1  
     }}
 
+segment_params_leg = {
+    1: {
+        'label': "Fibula",
+        'smoothing': 0.2,  
+        'mesh_smoothing_method': 'taubin',
+        'mesh_smoothing_iterations': 250,  
+        'mesh_smoothing_factor': 0.1  
+    },
+    2: {
+        'label': "Patella" ,
+        'smoothing': 0.2,
+        'mesh_smoothing_method': 'taubin',
+        'mesh_smoothing_iterations': 250, 
+        'mesh_smoothing_factor': 0.1  
+    },
+    3: {
+        'label': "Tibia",
+        'smoothing': 0.2,
+        'mesh_smoothing_method': 'taubin',
+        'mesh_smoothing_iterations': 250,  
+        'mesh_smoothing_factor': 0.1
+},
+    4: {
+        'label': "Femur",
+        'smoothing': 0.2,
+        'mesh_smoothing_method': 'taubin',
+        'mesh_smoothing_iterations': 250,  
+        'mesh_smoothing_factor': 0.1
+}
+}
+
 if __name__ == "__main__":
-    process_directory(r"E:\becken2\label",r"E:\becken2\stl",segment_params=segment_params_pelvis)
+    process_directory(r"Q:\Studenten\Leonard Schumann\dicoms\13\label",r"Q:\Studenten\Leonard Schumann\dicoms\13\stl",segment_params=segment_params_leg, split=True)
     

@@ -72,8 +72,8 @@ def masking(nii_path):
     suffix_left= 'links'
     right_data= volume.copy()
     right_data[x_split:,:,:] =0
-    img_rechts = Nifti1Image(right_data, affine)
-    img_links = Nifti1Image(left_data, affine)
+    img_rechts = Nifti1Image(right_data.astype(np.int16), affine)
+    img_links = Nifti1Image(left_data.astype(np.int16), affine)
     basename, ext = nii.get_filename().split(os.extsep, 1)
     out_name_rechts = f'{basename}-{suffix_right}.{ext}'
     out_name_links = f'{basename}-{suffix_left}.{ext}'
