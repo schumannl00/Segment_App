@@ -1,7 +1,7 @@
 # nnUNet Segmentation App
 
 A GUI-based application for medical image segmentation using the nnUNet framework, supporting DICOM to NIfTI conversion, automatic segmentation with pre-trained models, and STL export for 3D printing or further analysis.
-
+We developed it as an on-site tool that requires no technical background. It is tested on Windows, designed for a workstation setup for either coworkers or medical personnel who need models/masks for studies. Pre-trained models might be shared in the future. Places where best to add customizable changes to suit specific needs are given below. 
 ## Overview
 
 This tool provides an end-to-end pipeline for medical image segmentation:
@@ -32,16 +32,14 @@ The application is designed to be user-friendly with a GUI interface that suppor
 
 ### Prerequisites
 
-- Python 3.6+
-- PyTorch
+- Python 3.12+
+- PyTorch (2.5.1) (higher versions have safe loading (weights_only) which does not work with nnUNet last I checked
 - CUDA (recommended for faster processing)
 - nnUNetV2
 
 ### Required Python Packages
 
-```bash
-pip install tkinter tkinterdnd2 numpy dicom2nifti pydicom torch nibabel scikit-image scipy pyvista numpy-stl
-```
+See requirements.txt
 
 ### nnUNet Installation
 
@@ -53,13 +51,14 @@ export nnUNet_raw="/path/to/nnUNet_raw"
 export nnUNet_preprocessed="/path/to/nnUNet_preprocessed"
 export nnUNet_results="/path/to/nnUNet_results"
 ```
-
+Than download all the remaining parts from requirements.txt (pip install -r requirements.txt , easy support for uv might be added at some point as it is faster) 
 ## Usage
-0. Add paths for label and id jsons which need structuring as in the examaple
+0. Add paths for label and id jsons which need structuring as in the example
 1. Launch the application:
    ```bash
    python segment_app.py
    ```
+   or use launch.ps1 script (add shortcut to desktop for coworkers who are not used to CLI) 
 
 2. Configure input and output paths:
    - Set the input path (DICOM data folder)
@@ -72,10 +71,11 @@ export nnUNet_results="/path/to/nnUNet_results"
 
 5. Select configuration and folds
 
-6. Optional pre-processing:
+6. Optional processing:
    - Split NIFTIs into left and right
    - Cut along Z direction (specify Z-range)
    - Process multiple patient subfolders
+   - Mesh fix (fix + removal of small fragments still combined will be split in the next push) 
 
 7. Click "Submit" to start processing
 
@@ -84,9 +84,9 @@ export nnUNet_results="/path/to/nnUNet_results"
 ## Customizing Segment Parameters
 
 Click "Edit Segment Params" to customize parameters for each anatomical structure:
-- `smoothing`: Labelmap smoothing factor (Gaussian smoothing: 1.0-3.0)
+- `smoothing`: Labelmap smoothing factor (Gaussian smoothing: 0.2-2.0)
 - `mesh_smoothing_method`: Method used for mesh smoothing ( 'taubin'): PyVista implementation as WindowedSync
-- `mesh_smoothing_iterations`: Number of smoothing iterations
+- `mesh_smoothing_iterations`: Number of smoothing iterations (150)
 - `mesh_smoothing_factor`: Strength of smoothing per iteration (pass-band: smaller value equals stronger smoothing, default 0.1 recommended)
 
 
@@ -97,6 +97,10 @@ The application generates:
 - Segmentation label maps
 - STL files for 3D printing
 - A `decoder.json` file mapping the, for the segmentation, renamed files to the original ones.
+- 
+### Changes
+Change the output name in the multiprocessed.py line 73 to the case you need, we had some irregular Patient_IDs before the last push, so used PatientName twice as we need the naming schema to be {identifier1}_{identifier2}_{series_description}, so change one back to PaientId etc.  
+Also added some helper functions in utils, that are task task-specific in the prep for training with nnUNet. 
 
 ## Json examples 
 
@@ -110,7 +114,7 @@ ids_dict : {
            "3d_fullres"  
         ],
         "prefix": "",   
-        "suffix": "_0000"   #no autamatic renaming for different modalities included as we exclusively worked with CT images 
+        "suffix": "_0000"   #no automatic renaming for different modalities included as we exclusively worked with CT images 
     }
 , } <br>
 labels_dict: {
@@ -121,13 +125,16 @@ labels_dict: {
     },} 
 ## Explanation for certain choices
 
-The filtering via the Series Description is optional. It will just get Exceptions for files it cannot transform, which usually are exam summaries or dosis infos. If there are a lot of scans for a patient, it is still advised to use the one with the smallest slice thickness as it will reduce steps in the stls. 
+The filtering via the Series Description is optional. It will just get Exceptions for files it cannot transform, which usually are exam summaries or dosis infos. If there are a lot of scans for a patient, it is still advised to use the one with the smallest slice thickness, as it will reduce steps in the stls. 
 For now, dictionaries are stored in the code as more models are added, moving them to an external json file and loading is advised. 
-In "splitting" into left and right we don't seperate the files into left and right, but mask the undesired side. We apply it to the labelmaps as the background value is 0 for every file. This avoids alignment issues in the stl and allows the user to use one-sided labelmaps for other applications if needed. 
-I chose both labelmap smoothing as well as mesh smoothing. The first to remove minor artifacts from the segmentation, like a stay misclassed voxel. The latter to remove the step artifacts that can show up in the conversion using taubin smoothing ensure next to no volume change. I compared the resulting STLs to ones created from the segmentation maps using 3DSlicers built in conversion and there is no meaningful difference. 
+In "splitting" into left and right we don't separate the files into left and right, but mask the undesired side. We apply it to the labelmaps as the background value is 0 for every file. This avoids alignment issues in the stl and allows the user to use one-sided labelmaps for other applications if needed. 
+I chose both labelmap smoothing as well as mesh smoothing. The first to remove minor artifacts from the segmentation, like a stray misclassed voxel. The latter is to remove the step artifacts that can show up in the conversion using taubin smoothing ensuring next to no volume change. I compared the resulting STLs to ones created from the segmentation maps using 3DSlicers built-in conversion and there is no meaningful difference (they might use a similar pipeline). 
 As there is no medical certification, this should be only used for research and not for clinical use. 
 
-## Troubleshooting
+### Troubleshooting
+There are still some edge cases where the filtering does not work. Cannot figure out where the problem lies, as it affects some of the harmless-looking ones. But Series Descriptions are usually a mess anyway, with varying conventions and no consistency. So do not filter if not needed.  
+Will also make the stl conversion parallel in the next push. It does not take long, but when the computing resources are available, why not use them fully?  
+
 
 ### Common Issues
 
