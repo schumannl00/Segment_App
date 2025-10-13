@@ -1,4 +1,8 @@
 import SimpleITK as sitk
+
+#we had problems with the headers when creating masks from stl models with 3DSlicer, this fixes that, modify to your need  
+
+
 for i in range(18,79):  
 
     number = str(i).zfill(3)
