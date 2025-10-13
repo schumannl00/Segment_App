@@ -1,6 +1,7 @@
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox, simpledialog
 from tkinterdnd2 import DND_FILES, TkinterDnD
+from ttkbootstrap.scrolled import ScrolledFrame
 import os
 import re
 import sys
@@ -23,11 +24,11 @@ from skimage import measure
 from scipy import ndimage
 import pyvista as pv
 from stl import mesh
-from nii_to_stl_final import convert_to_LPS, process_with_parameters, process_directory, stl_renamer_with_lut
+from multi_stl import process_directory_parallel
 import shutil
 from leg_seperator import masking, zcut
 from multiprocessed import raw_data_to_nifti_parallel, nifti_renamer
-from modifier import merger 
+from modifier import merger, stl_renamer_with_lut
 import ttkbootstrap as tb
 from ttkbootstrap.constants import *
 import logging
@@ -89,8 +90,8 @@ class ParameterGUI:
         path_frame.columnconfigure(1, weight=1)
       
       
-        # Row 1: Input Path with drag and drop
-
+       
+        #Input path
         tb.Label(path_frame, text="Input Path:", bootstyle= PRIMARY).grid(row=0, column=0, sticky=W, pady=5, padx= 5)
         self.input_path = tk.StringVar()
         input_frame = tb.Frame(path_frame)
@@ -103,7 +104,7 @@ class ParameterGUI:
         input_button = tb.Button(input_frame, text="Browse", command=self.browse_input_path, bootstyle = "primary")
         input_button.grid(row=0, column=1,  padx=(5, 0))
 
-        # Row 2: Output Paths (STL and Labelmaps)
+        #Output paths
         tb.Label(path_frame, text="STL Output Path:").grid(row=1, column=0, sticky=W, pady=5, padx=5 )
         self.stl_output_path = tk.StringVar()
         stl_output_frame = tb.Frame(path_frame)
@@ -144,12 +145,12 @@ class ParameterGUI:
 
         indicator_controls_frame = tb.Frame(indicator_frame)
         indicator_controls_frame.grid(row=0, column=1, sticky=EW, padx=5, pady=5)
-        # *** Use grid inside indicator_controls_frame ***
-        indicator_controls_frame.columnconfigure(0, weight=1) # Make menubutton expand
-        # menubutton
+       
+        indicator_controls_frame.columnconfigure(0, weight=1) 
+      
         self.indicators_menu = ttk.Menubutton(indicator_controls_frame, text="Select Indicators", width=60)
         self.indicators_menu.grid(row=0, column=0, sticky=EW, padx=(0, 5))
-        #dropdown menu
+       
         self.dropdown_menu = tk.Menu(self.indicators_menu, tearoff=0)
         self.indicators_menu["menu"] = self.dropdown_menu
 
@@ -181,7 +182,6 @@ class ParameterGUI:
 
         config_group_frame = tb.LabelFrame(main_frame, text="Details for the segmentation", padding = "10", bootstyle= INFO)
         config_group_frame.grid(row=2, column=0, columnspan=1, sticky=EW, pady=(0, 10)) # Use grid in main_frame
-        # Configure grid columns *inside* the LabelFrame
         config_group_frame.columnconfigure(1, weight=1)
 
 
@@ -217,7 +217,7 @@ class ParameterGUI:
         self.folds_var = tk.StringVar(value="0,1,2,3,4")  # Default value of 5 folds
         self.folds_checkbuttons = []
         for i in range(5):
-            var = tk.BooleanVar(value=False)  # Default to selected
+            var = tk.BooleanVar(value=False)  
             check = tb.Checkbutton(self.folds_frame, text=f"Fold {i}", variable=var)
             check.grid(row=0, column=i, padx=5, pady=5)
             self.folds_checkbuttons.append((var, i))
@@ -226,11 +226,11 @@ class ParameterGUI:
         self.select_all_button.grid(row=1, column=0, columnspan=2, padx=15, pady=5)
         self.deselect_all_button = ttk.Button(self.folds_frame, text= "Deselect all", command=self.deselect_all_folds, style= WARNING )
         self.deselect_all_button.grid(row=1, column=2, columnspan=2, padx=15, pady=5 )
-       #Row 6
-        
+      
+       #Processing
+    
         preprocessing_frame = tb.LabelFrame(main_frame, text="Processing Options", padding = "10", bootstyle= INFO)
         preprocessing_frame.grid(row=2, column=1, columnspan=4, sticky=EW, pady=(0, 5), padx=5) # Use grid in main_frame
-        # Configure grid columns *inside* the LabelFrame
         preprocessing_frame.columnconfigure(1, weight=1)
 
 
@@ -240,7 +240,7 @@ class ParameterGUI:
         tb.Label(preprocessing_frame, text= "Cutting along x direction:").grid(row=0, column =0, sticky = W, pady = 5, padx = 5)
         self.split_nifti_check = tb.Checkbutton(preprocessing_frame, text="Split NIFTIs into left and right", variable=self.split_nifti_var)
         self.split_nifti_check.grid(row=0, column=1, columnspan=4,   sticky=tk.W, pady=5, padx= 5)
-        #Row 7
+
         self.enable_zcut = tk.BooleanVar(value=False)
         enable_checkbox = tb.Checkbutton(preprocessing_frame, 
                                          text="Cut along z direction",
@@ -248,33 +248,39 @@ class ParameterGUI:
                                          command=self.toggle_zcut_inputs)
         enable_checkbox.grid(row=1, column=0, sticky=W, pady=5, padx = 5)
         
-        # Z-range parameters (single row, two columns)
+     
         self.keep_originals= tk.BooleanVar(value=False)
-        keep_originals_checkbox = tb.Checkbutton(preprocessing_frame, text="Keep originals", variable=self.keep_originals)
-        keep_originals_checkbox.grid(row=1, column=1, sticky=W, pady=5, padx=5)
-        # Lower bound
+        self.keep_originals_checkbox = tb.Checkbutton(preprocessing_frame, text="Keep originals", variable=self.keep_originals, state=DISABLED)
+        self.keep_originals_checkbox.grid(row=1, column=1, sticky=W, pady=5, padx=5)
+       
         ttk.Label(preprocessing_frame, text="Lower:").grid(row=1, column=2, sticky=E, pady=(0, 10), padx=(0, 5))
         self.lower_var = tk.StringVar(value="0")
         self.lower_entry = tb.Entry(preprocessing_frame, textvariable=self.lower_var, width=10)
         self.lower_entry.grid(row=1, column=3, sticky=tk.W, pady=(0, 10))
         self.lower_entry["state"] = "disabled"
         
-        # Upper bound
+  
         ttk.Label(preprocessing_frame, text="Upper:").grid(row=1, column=4, sticky=tk.E, pady=(0, 10), padx=(20, 5))
         self.upper_var = tk.StringVar(value="0")
         self.upper_entry = tb.Entry(preprocessing_frame, textvariable=self.upper_var, width=10)
         self.upper_entry.grid(row=1, column=5, sticky=tk.W, pady=(0, 10))
         self.upper_entry["state"] = "disabled"
 
-        #Row 8
+   
         self.multiple_ids_var = tk.BooleanVar(value=False)
         self.multiple_ids_check =tb.Checkbutton(preprocessing_frame, text="Does the Input Folder have indiviudual subfolders \n e.g. multiple patients? Use custom filters ('+' -Button) as  naming conventions might vary.", variable=self.multiple_ids_var)
         self.multiple_ids_check.grid(row=2, column=0, columnspan=6, sticky=W, pady=(0, 10))
 
-        #Row 9 
+ 
         self.meshfix_var = tk.BooleanVar(value=True)
-        self.meshfix_check = tb.Checkbutton(preprocessing_frame, text= "Appply Pymesh meshrepair, caps open stls and removes small disconnected artifacts", variable=self.meshfix_var)
+        self.meshfix_check = tb.Checkbutton(preprocessing_frame, text= "Appply Pymesh meshrepair (caps open stls as well)",  variable=self.meshfix_var, command=self.on_meshfix_toggle)
         self.meshfix_check.grid(row=3, column=0, columnspan=6, sticky = W, pady=(0,10))
+
+    
+        self.islands_var = tk.BooleanVar(value=True)
+        self.islands_check = tb.Checkbutton(preprocessing_frame, text= "Remove all but the largest element from stl",  variable=self.islands_var)
+        self.islands_check.grid(row=4, column=0, columnspan=6, sticky = W, pady=(0,10))
+
 
         # Button frame at the bottom
         button_frame = ttk.Frame(main_frame)
@@ -383,6 +389,16 @@ class ParameterGUI:
             self.indicators_menu.config(text="No indicators found")
             self.status_var.set("No indicators found in the selected directory")
 
+    def on_meshfix_toggle(self):
+        if not self.meshfix_var.get():
+            # If meshfix is unchecked, uncheck and disable islands
+            self.islands_var.set(False)
+            self.islands_check.configure(state='disabled')
+        else:
+            # If meshfix is checked, enable islands checkbox
+            self.islands_check.configure(state='normal')
+
+
     def toggle_indicator(self, indicator):
             if indicator in self.selected_indicators:
                 self.selected_indicators.remove(indicator)
@@ -450,11 +466,12 @@ class ParameterGUI:
 
     def toggle_zcut_inputs(self):
         if self.enable_zcut.get():
-            
+            self.keep_originals_checkbox["state"] = "normal"
             self.lower_entry["state"] = "normal"
             self.upper_entry["state"] = "normal"
         else:
-            
+            self.keep_originals.set(False)
+            self.keep_originals_checkbox["state"] = "disabled"
             self.lower_entry["state"] = "disabled"
             self.upper_entry["state"] = "disabled"
     
@@ -576,7 +593,7 @@ class ParameterGUI:
             cut_z = params['cut_z']
             keep_originals= params["keep_originals"]
             meshrepair = params["use_meshrepair"]
-
+            remove_islands = params["remove_islands"]
             # Ensure output directories exist
             os.makedirs(stl_output_path, exist_ok=True)
             os.makedirs(labelmap_output_path, exist_ok=True)
@@ -676,7 +693,7 @@ class ParameterGUI:
             self.progress_queue.put(ProgressEvent(80, "Converting segmentations to STL..."))
             
             # Get label files from the output directory
-            process_directory(labelmap_output_path, stl_output_path, segment_params=segment_params[selected_id], file_mapping=file_mapping, split=split, use_pymeshfix=meshrepair)
+            process_directory_parallel(labelmap_output_path, stl_output_path, segment_params=segment_params[selected_id], split=split, use_pymeshfix=meshrepair, remove_islands=remove_islands)
             
             self.progress_queue.put(ProgressEvent(90, "STL names back to original names..."))
             stl_renamer_with_lut(stl_output_path=stl_output_path, file_mapping=file_mapping)
@@ -746,7 +763,8 @@ class ParameterGUI:
             'z-upper': self.upper_var.get(),
             'cut_z': self.enable_zcut.get(),
             'keep_originals' : self.keep_originals.get(),
-            'use_meshrepair': self.meshfix_var.get()
+            'use_meshrepair': self.meshfix_var.get(),
+            'remove_islands' : self.islands_var.get()
         }
 
         # Show summary of parameters
@@ -779,48 +797,44 @@ class ParameterGUI:
                                   "Please wait for the current operation to complete before editing parameters.")
         segment_window = tk.Toplevel(self.root)
         segment_window.title("Edit Segment Params")
-        segment_window.geometry("500x400")
+        segment_window.geometry("500x700")
         
         # Create a frame with scrollbar for the parameters
-        canvas = tk.Canvas(segment_window)
-        scrollbar = ttk.Scrollbar(segment_window, orient="vertical", command=canvas.yview)
-        scrollable_frame = ttk.Frame(canvas)
-        
-        scrollable_frame.bind(
-            "<Configure>",
-            lambda e: canvas.configure(scrollregion=canvas.bbox("all"))
-        )
-        
-        canvas.create_window((0, 0), window=scrollable_frame, anchor="nw")
-        canvas.configure(yscrollcommand=scrollbar.set)
-        
-        # Pack the scrollbar and canvas
-        canvas.pack(side="left", fill="both", expand=True)
-        scrollbar.pack(side="right", fill="y")
-        
+        scrolled = ScrolledFrame(segment_window, autohide=True)
+        scrolled.pack(fill="both", expand=True, padx=5, pady=5)
+
         # Store references to Entry widgets
         param_entries = {}
-        
+
         # Add parameter entries for the selected ID
-        segment_frame = ttk.LabelFrame(scrollable_frame, text=f"Segment Parameters for ID {selected_id}")
+        segment_frame = ttk.LabelFrame(scrolled, text=f"Segment Parameters for ID {selected_id}")
         segment_frame.pack(fill="x", expand=True, padx=10, pady=5)
-        
+
         param_entries[selected_id] = {}
-        
+
         row = 0
         for label_id, params in segment_params[selected_id].items():
             label_frame = ttk.LabelFrame(segment_frame, text=f"Label {label_id} ({params['label']})")
             label_frame.grid(row=row, column=0, sticky="ew", padx=5, pady=5)
+            label_frame.columnconfigure(1, weight=1)  # Make entry column expand
             
+            inner_row = 0
             for param_name, param_value in params.items():
                 if param_name != 'label' and isinstance(param_value, (int, float, str)):
-                    ttk.Label(label_frame, text=f"{param_name}:").grid(row=row, column=0, sticky="w", padx=5, pady=2)
+                    ttk.Label(label_frame, text=f"{param_name}:").grid(
+                        row=inner_row, column=0, sticky="w", padx=5, pady=2
+                    )
                     entry = ttk.Entry(label_frame)
                     entry.insert(0, str(param_value))
-                    entry.grid(row=row, column=1, sticky="ew", padx=5, pady=2)
+                    entry.grid(row=inner_row, column=1, sticky="ew", padx=5, pady=2)
                     param_entries[selected_id][(label_id, param_name)] = entry
-                    row += 1
-    
+                    inner_row += 1
+            
+            row += 1
+
+        # Configure column weights for proper expansion
+        segment_frame.columnconfigure(0, weight=1)
+
     # Function to save the updated parameters
         def save_params():
             try:
@@ -840,11 +854,11 @@ class ParameterGUI:
                 messagebox.showerror("Error", f"Invalid value entered: {str(e)}")
         
         # Add save and cancel buttons
-        button_frame = ttk.Frame(scrollable_frame)
+        button_frame = ttk.Frame(scrolled)
         button_frame.pack(fill="x", expand=True, padx=10, pady=10)
         
-        ttk.Button(button_frame, text="Save", command=save_params).pack(side="left", padx=5)
-        ttk.Button(button_frame, text="Cancel", command=segment_window.destroy).pack(side="right", padx=5)
+        ttk.Button(button_frame, text="Save", command=save_params, style="success").pack(side="left", padx=15)
+        ttk.Button(button_frame, text="Cancel", command=segment_window.destroy, style="warning").pack(side="right", padx=15)
 
 if __name__ == "__main__":
     root = TkinterDnD.Tk()

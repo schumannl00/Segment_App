@@ -4,3 +4,4 @@ labels.json
 transform_DICOM_to_nifti.py
 /__pycache__/
 .venv/
+nii_to_stl_final.py
