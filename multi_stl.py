@@ -377,23 +377,23 @@ segment_params_leg = {
 segment_ankle = {
     1: {
         'label': "Fibula",
-        'smoothing': 3.0,  
+        'smoothing': 1.0,  
         'mesh_smoothing_method': 'taubin',
-        'mesh_smoothing_iterations': 250,  
+        'mesh_smoothing_iterations': 150,  
         'mesh_smoothing_factor': 0.1  
     },
     2: {
         'label': "Talus" ,
-        'smoothing': 3.0,
+        'smoothing': 1.0,
         'mesh_smoothing_method': 'taubin',
-        'mesh_smoothing_iterations': 250, 
+        'mesh_smoothing_iterations': 150, 
         'mesh_smoothing_factor': 0.1  
     },
     3: {
         'label': "Tibia",
-        'smoothing': 3.0,
+        'smoothing': 1.0,
         'mesh_smoothing_method': 'taubin',
-        'mesh_smoothing_iterations': 250,  
+        'mesh_smoothing_iterations': 150,  
         'mesh_smoothing_factor': 0.1
 }
 }
@@ -404,8 +404,8 @@ if __name__ == "__main__":
     mp.freeze_support()
     
     process_directory_parallel(
-        input_dir=r"E:\stl_multi\label",
-        output_root_dir=r"E:\stl_multi\stl",
+        input_dir=r"E:\multiple\label",
+        output_root_dir=r"E:\multiple\stl",
         segment_params=segment_ankle,
         remove_islands=True,
         split=False,

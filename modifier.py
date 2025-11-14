@@ -72,3 +72,5 @@ def stl_renamer_with_lut(stl_output_path : Path , file_mapping : dict ):
                     logging.error(f"Error renaming {item_path}: {str(e)}")
             else:
                 logging.warning(f"No matching original filename found for number {number}")
+
+

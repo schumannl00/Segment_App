@@ -68,9 +68,13 @@ def DICOM_splitter(path):
                 file_series_description = re.sub(r'\s+', '_', file_series_description)
                 if not file_series_description:
                     file_series_description = "UnknownSeries"
-
+                series_number_tag = (0x0020,0x0011)
+                series_number = read_file[series_number_tag].value
+                if not series_number: 
+                    series_number = 111
+                string_number = str(series_number) 
                 
-                target_dir_name = f"{file_PatientName}_{file_PatientName}_{file_series_description}"  
+                target_dir_name = f"{file_PatientName}_{file_series_id}_Series{string_number}_{file_series_description}"  
                 description_path = sort_dir / target_dir_name
 
                 
@@ -122,7 +126,7 @@ def convert_single_series_to_nifti(input_dir_path, output_nifti_path):
         return (str(input_dir_path), False, error_msg) # Return input, failure status, error message
 
 # --- Main function using ProcessPoolExecutor ---
-def raw_data_to_nifti_parallel(raw_path, scans_indicators=None, use_default=False, max_workers=12):
+def raw_data_to_nifti_parallel(raw_path, scans_indicators=None, group_filter = None, use_default=False, max_workers=12):
     """
     Sorts DICOMs and converts selected series to NIFTI in parallel.
 
@@ -162,6 +166,7 @@ def raw_data_to_nifti_parallel(raw_path, scans_indicators=None, use_default=Fals
     print("Step 2: Preparing conversion tasks...")
     tasks = []
     patterns = []
+    group_pattern = []
     if scans_indicators and not use_default:
         # Compile regex patterns for faster matching if indicators are provided
         try:
@@ -170,6 +175,13 @@ def raw_data_to_nifti_parallel(raw_path, scans_indicators=None, use_default=Fals
         except re.error as e:
             print(f"Error compiling regex for scan indicators: {e}. Please check indicators: {scans_indicators}")
             return 
+    if group_filter and not use_default:
+        try:
+            group_pattern = re.compile(re.escape(group_filter), re.IGNORECASE)
+            print(f"Using group filter: '{group_filter}'")
+        except re.error as e:
+            print(f"Error compiling regex for group filter: {e}. Please check filter: {group_filter}")
+            return
 
     skipped_dirs = []
     dirs_to_convert = []
@@ -181,17 +193,26 @@ def raw_data_to_nifti_parallel(raw_path, scans_indicators=None, use_default=Fals
             should_convert = False
             if use_default:
                 should_convert = True
-            elif patterns and len(parts) >= 3:
-                series_description_from_name = "_".join(parts[2:])  # The description is everything from the 3rd element onwards, joined by underscores
-                if patterns and any(p.search(series_description_from_name) for p in patterns):
+            else: 
+                match_indicator = False
+                match_group = False
+
+                if patterns:
+                    if len(parts) >= 4:
+                        series_description_from_name = "_".join(parts[3:])  # The description is everything from the 4th element onwards, joined by underscores
+                        if any(p.search(series_description_from_name) for p in patterns):
+                            match_indicator = True
+                    elif len(parts) < 4:
+                        print(f"Unexpected name format {item_name} for indicator check")
+                
+                
+                if group_pattern:
+                    if group_pattern.search(item_name):
+                        match_group = True
+                
+                # Convert if *either* filter matches (and filters are active)
+                if (patterns and match_indicator) or (group_pattern and match_group):
                     should_convert = True
-            elif len(parts) < 3:
-                print(f"Unexpected name format {item_name}")
-                skipped_dirs.append(item_name)
-            else:
-                # The directory name format is unexpected, so we skip it
-                print(f"Skipping directory with unexpected name format: {item_name}")
-                skipped_dirs.append(item_name)
 
             if should_convert:
                 nifti_filename = f"{item_name}.nii.gz"
@@ -272,9 +293,13 @@ def raw_data_to_nifti_parallel(raw_path, scans_indicators=None, use_default=Fals
 # To convert everything (use with caution, might include localizers, dose reports etc.):
 # raw_data_to_nifti_parallel('C:/dicom_raw_data', use_default=True, max_workers=12)
 
-# Blueprint for changing metadata of DICOM files, here just series description 
-# For more Keywords, tags see https://dicom.innolitics.com/ciods/rt-dose/patient/00100010
-def modify_metadata(dcm_file, backup=True, new_desc= '', new_name = ''):
+
+
+
+
+def modify_metadata(dcm_file, backup=True, custom = False, new_desc= '', new_name = ''):
+    # Blueprint for changing metadata of DICOM files, here just series description 
+    # For more Keywords, tags see https://dicom.innolitics.com/ciods/rt-dose/patient/00100010
     try:
         ds = pydicom.dcmread(dcm_file)
         
@@ -284,10 +309,10 @@ def modify_metadata(dcm_file, backup=True, new_desc= '', new_name = ''):
         
         # Get acquisition number (default to empty string if not present)
         acq_num = str(ds.get('AcquisitionNumber', ''))
-        study_id= (0x0020,0x0010)  #tags as names are unreliable
-        series_tag=(0x0021,0x1003) #tags as names are unreliable
-        patient_study_id= ds[study_id].value
-        patient_series= ds[series_tag].value
+        #study_id= (0x0020,0x0010)  #tags as names are unreliable 
+        #series_tag=(0x0021,0x1003) #tags as names are unreliable, check if the tag is there before uncommenting, it is private in most cases
+        #patient_study_id= ds[study_id].value
+        #patient_series= ds[series_tag].value
         
         series_desc = str(ds.get('SeriesDescription', '')) # Get current series description (default to empty string if not present)
         patient_name = str(ds.get('PatientName', ''))   # Get current patient name (default to empty string if not present)
@@ -304,6 +329,17 @@ def modify_metadata(dcm_file, backup=True, new_desc= '', new_name = ''):
             # Corrected tag lookup typo from '\tPatientName' to 'PatientName'
             ds.PatientName = new_name
             modified = True
+        
+        if custom: 
+            #play around with what you need here
+            print("Custom changes made.")
+            series_number_tag = (0x0020,0x0011)
+            series_number = ds[series_number_tag].value
+            string_number = str(series_number) 
+            print(series_number)
+            ds.SeriesDescription = f"{series_desc}_{string_number}" 
+            modified = True
+
             
         # Save the file only if changes were made
         if modified:
@@ -327,7 +363,7 @@ def modify_metadata(dcm_file, backup=True, new_desc= '', new_name = ''):
 
 # Modifies all DICOMs in the given directory with the specific instructions given in modify_series_description so modify than accordingly especially the new_desc variable 
 
-def modify_dcms(directory_path, new_desc, new_name):
+def modify_dcms(directory_path, new_desc, new_name,custom):
     path= Path(directory_path)
     mod_files = 0 
     for root, dirs, files in os.walk(path):
@@ -335,7 +371,7 @@ def modify_dcms(directory_path, new_desc, new_name):
         for file in files:
             file_path= os.path.join(root, file)
             if os.path.isfile(file_path):
-                modify_metadata(file_path, backup=False, new_desc=new_desc, new_name=new_name) 
+                modify_metadata(file_path, backup=False, new_desc=new_desc, new_name=new_name, custom=custom) 
                 mod_files += 1
     print(mod_files)
 
@@ -356,10 +392,4 @@ if __name__ == "__main__":
     from multiprocessing import freeze_support
     freeze_support()  # This is needed for Windows
     # Your function call here
-    from pathlib import Path
-
-    base = Path(r"Q:\Studenten\Leonard Schumann\dicoms")
-
-    for i in range(6, 54):
-        path = base / str(i) / "dicoms"
-        raw_data_to_nifti_parallel(Path(path), use_default=True)
+    modify_dcms(r"E:\fehlerhaft_final\108-25L P^27092025_108-25L P^27092025_OSG_G6_ER_DF_0,80_Br64_A1_KF_duenn_L", custom=True, new_desc=False, new_name=False)

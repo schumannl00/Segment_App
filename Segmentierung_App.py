@@ -26,12 +26,13 @@ import pyvista as pv
 from stl import mesh
 from multi_stl import process_directory_parallel
 import shutil
-from leg_seperator import masking, zcut
+from cutting import masking, zcut
 from multiprocessed import raw_data_to_nifti_parallel, nifti_renamer
 from modifier import merger, stl_renamer_with_lut
 import ttkbootstrap as tb
 from ttkbootstrap.constants import *
 import logging
+from utils.logging_tool import gui_log_output, SuppressStdout, TerminalOnlyStdout
 
 with open("ids.json", "r") as ids:
     id_dict = json.load(ids)
@@ -147,7 +148,8 @@ class ParameterGUI:
         indicator_controls_frame.grid(row=0, column=1, sticky=EW, padx=5, pady=5)
        
         indicator_controls_frame.columnconfigure(0, weight=1) 
-      
+        indicator_controls_frame.columnconfigure(3, weight=1)
+
         self.indicators_menu = ttk.Menubutton(indicator_controls_frame, text="Select Indicators", width=60)
         self.indicators_menu.grid(row=0, column=0, sticky=EW, padx=(0, 5))
        
@@ -163,17 +165,22 @@ class ParameterGUI:
         
         self.add_custom_button.grid(row=0, column=1, padx=(5, 5))
 
+        tb.Label(indicator_controls_frame, text="Group:").grid(row=0, column=2, padx=(10, 2), sticky=E)
+        self.group_filter_var = tk.StringVar()
+        self.group_filter_entry = tb.Entry(indicator_controls_frame, textvariable=self.group_filter_var, width=20)
+        self.group_filter_entry.grid(row=0, column=3, sticky=EW, padx=(0, 5))
+        self.group_filter_var.trace_add('write', self.check_filter_activity)
+        # -------------------------
 
         # Checkbox for using default indicators
-        self.use_default_indicators = tk.BooleanVar(value=False)
+        self.use_default_indicators = tk.BooleanVar(value=True) # Start as True
         self.default_indicators_check = tb.Checkbutton(
             indicator_controls_frame, 
             text="Don't filter", 
             variable=self.use_default_indicators,
             command=self.toggle_indicators_entry, bootstyle= "danger"
         )
-        self.default_indicators_check.grid(row=0, column=2, padx=(10, 10))
-
+        self.default_indicators_check.grid(row=0, column=4, padx=(10, 10))
 
        
         
@@ -309,7 +316,7 @@ class ParameterGUI:
         self.status_var.set("Ready")
 
         self.input_path.trace_add('write', self.schedule_indicator_scanning)
-
+        self.check_filter_activity()
     def schedule_indicator_scanning(self, *args):
     
         path = self.input_path.get()
@@ -410,7 +417,7 @@ class ParameterGUI:
             
             # Update the menubutton display text
             self.update_menubutton_text()
-
+            self.check_filter_activity()
 
     def add_custom_indicator(self):
         """
@@ -443,12 +450,32 @@ class ParameterGUI:
     def toggle_indicators_entry(self):
             if self.use_default_indicators.get():
                 self.saved_indicators = self.scan_indicators.get()
-                self.indicators_menu.config(text= "No filtering. Might cause errors.")
+                self.indicators_menu.config(text= "No filtering. Will convert all viable scans.")
                 self.indicators_menu.configure(state="disabled")
+                self.group_filter_entry.configure(state="disabled")
                
             else:
                 self.scan_indicators.set(getattr(self, 'saved_indicators', ''))
                 self.indicators_menu.configure(state="normal")
+                self.group_filter_entry.configure(state="normal")
+
+
+    def check_filter_activity(self, *args):
+        """Auto-toggle 'Don't filter' based on filter inputs."""
+        no_indicators = not self.selected_indicators
+        no_group_filter = not self.group_filter_var.get().strip()
+        
+        if no_indicators and no_group_filter:
+            # If no filters are active, check "Don't filter"
+            if not self.use_default_indicators.get():
+                self.use_default_indicators.set(True)
+                self.toggle_indicators_entry()
+        else:
+            # If any filter is active, uncheck "Don't filter"
+            if self.use_default_indicators.get():
+                self.use_default_indicators.set(False)
+                self.toggle_indicators_entry()
+    # --------------------
     
     def on_key_change(self, *args):
         key = self.id_var.get()
@@ -559,10 +586,11 @@ class ParameterGUI:
         self.stl_output_path.set("")
         self.labelmap_output_path.set("")
         self.scan_indicators.set("")
+        self.group_filter_var.set("")
         self.use_default_indicators.set(False)
         self.id_var.set("")
         self.config_var.set("3d_fullres")
-        self.folds_var.set("0,1,2,3,4")
+        self.folds_var.set("")
         self.status_var.set("Fields cleared")
 
     def update_progress(self, value, message=None):
@@ -572,6 +600,10 @@ class ParameterGUI:
             self.status_var.set(message)
         self.root.update_idletasks()  # Update GUI
 
+    
+ 
+
+    @gui_log_output(get_log_dir_from_args=lambda s, params: Path(params["Input Path"]).parent / "logs")
     def process_data(self, params):
         """Process the input data using the parameters from the GUI"""
         try:
@@ -585,6 +617,7 @@ class ParameterGUI:
             suffix = id_dict[selected_id]['suffix'] if selected_id in id_dict else ""
             use_default = params["Use Default Indicators"]
             scan_indicators= None if use_default else params["Scan Indicators"]
+            group_filter = None if use_default else params["Group Filter"]
             configuration = params["Configuration"]
             split = params['Split']
             multiple = params['Multiple']
@@ -603,11 +636,11 @@ class ParameterGUI:
                 input_path= merger(input_path)
             # Step 1: Convert DICOM to NIfTI 
             self.progress_queue.put(ProgressEvent(15, "Converting DICOM to NIfTI..."))
-            #raw_data_to_nifti(input_path, scans_indicators=scan_indicators, use_default = use_default)
-            raw_data_to_nifti_parallel(input_path, scans_indicators=scan_indicators, use_default=use_default, max_workers=12)
+            
+            raw_data_to_nifti_parallel(input_path, scans_indicators=scan_indicators, group_filter=group_filter, use_default=use_default, max_workers=12)
             # Step 2: Process NIfTI files - get files to process
             self.progress_queue.put(ProgressEvent(30, "Processing NIfTI files..."))
-            #length = len(list((Path(params["Input Path"]).iterdir())))
+            
             inference_path = os.path.join(str(input_path.parent),r'NIFTI')
            
             if cut_z:
@@ -672,15 +705,17 @@ class ParameterGUI:
             # Run prediction on the input data
         
             self.progress_queue.put(ProgressEvent(60, "Running segmentation..."))
-            predictor.predict_from_files(
-                str(inference_path), 
-                str(labelmap_output_path),
-                save_probabilities=False,
-                overwrite=False,
-                num_processes_preprocessing=2,
-                num_processes_segmentation_export=2,
-                folder_with_segs_from_prev_stage=None, num_parts=1, part_id=0)
-            
+            print("Starting nnU-Net prediction. Status updates will be suppressed from the log.")
+            with TerminalOnlyStdout():
+                predictor.predict_from_files(
+                    str(inference_path), 
+                    str(labelmap_output_path),
+                    save_probabilities=False,
+                    overwrite=False,
+                    num_processes_preprocessing=2,
+                    num_processes_segmentation_export=2,
+                    folder_with_segs_from_prev_stage=None, num_parts=1, part_id=0)
+            print("nnUNet segmentation done.")
 
             #Masking after segmentation, should not cause problems in the segmentation is faster and background is 0 for every file 
             
@@ -691,7 +726,7 @@ class ParameterGUI:
 
             # Step 4: Convert segmentation to STL files
             self.progress_queue.put(ProgressEvent(80, "Converting segmentations to STL..."))
-            
+            print("Starting with batched stl conversion.")
             # Get label files from the output directory
             process_directory_parallel(labelmap_output_path, stl_output_path, segment_params=segment_params[selected_id], split=split, use_pymeshfix=meshrepair, remove_islands=remove_islands)
             
@@ -753,6 +788,7 @@ class ParameterGUI:
             "STL Output Path": self.stl_output_path.get(),
             "Labelmap Output Path": self.labelmap_output_path.get(),
             "Scan Indicators": self.selected_indicators,
+            "Group Filter": self.group_filter_var.get().strip(),
             "Use Default Indicators": self.use_default_indicators.get(),
             "ID": self.id_var.get(),
             "Configuration": self.config_var.get(),
