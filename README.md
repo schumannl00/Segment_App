@@ -15,11 +15,12 @@ The application is designed to be user-friendly with a GUI interface that suppor
 ## Features
 
 - **User-friendly GUI** with drag-and-drop support
-- **DICOM filtering** by series description to select specific scans as everything above 1mm slice thickness 
+- **DICOM filtering** by series description to select specific scans or with group labels (e.g. bone window if given in series description etc.)
 - ** Tested for different models** for various body parts:
   - Ankle (healthy and post op)
   - Shoulder
   - Pelvis
+  - Whole leg
 - **Pre-processing options**:
   - Left/right splitting for bilateral structures
   - Z-axis cutting for region-of-interest focus
@@ -53,12 +54,12 @@ export nnUNet_results="/path/to/nnUNet_results"
 ```
 Than download all the remaining parts from requirements.txt (pip install -r requirements.txt , easy support for uv might be added at some point as it is faster) 
 ## Usage
-0. Add paths for label and id jsons which need structuring as in the example
+0. Add paths for label and id jsons which need structuring as in the example and set up venv, best is torch --> nnUNetv2 --> rest from requirements.txt (had problems with keeping all in requirements.txt)
 1. Launch the application:
    ```bash
    python segment_app.py
    ```
-   or use launch.ps1 script (add shortcut to desktop for coworkers who are not used to CLI) 
+   or use modified launch.ps1 script (add shortcut to desktop for coworkers who are not used to CLI) 
 
 2. Configure input and output paths:
    - Set the input path (DICOM data folder)
@@ -126,20 +127,20 @@ labels_dict: {
 ## Explanation for certain choices
 
 The filtering via the Series Description is optional. It will just get Exceptions for files it cannot transform, which usually are exam summaries or dosis infos. If there are a lot of scans for a patient, it is still advised to use the one with the smallest slice thickness, as it will reduce steps in the stls. 
-For now, dictionaries are stored in the code as more models are added, moving them to an external json file and loading is advised. 
 In "splitting" into left and right we don't separate the files into left and right, but mask the undesired side. We apply it to the labelmaps as the background value is 0 for every file. This avoids alignment issues in the stl and allows the user to use one-sided labelmaps for other applications if needed. 
-I chose both labelmap smoothing as well as mesh smoothing. The first to remove minor artifacts from the segmentation, like a stray misclassed voxel. The latter is to remove the step artifacts that can show up in the conversion using taubin smoothing ensuring next to no volume change. I compared the resulting STLs to ones created from the segmentation maps using 3DSlicers built-in conversion and there is no meaningful difference (they might use a similar pipeline). 
+I chose both labelmap smoothing as well as mesh smoothing. The first to remove minor artifacts from the segmentation, like a stray misclassed voxel. The latter is to remove the step artifacts that can show up in the conversion using taubin smoothing ensuring next to no volume change. I compared the resulting STLs to ones created from the segmentation maps using 3DSlicers built-in conversion and there is no meaningful difference (they might use a similar pipeline). Still be careful to not oversmooth, especially the Gaussian smoothing.
 As there is no medical certification, this should be only used for research and not for clinical use. 
 
 ### Troubleshooting
-There are still some edge cases where the filtering does not work. Cannot figure out where the problem lies, as it affects some of the harmless-looking ones. But Series Descriptions are usually a mess anyway, with varying conventions and no consistency. So do not filter if not needed.  
-Will also make the stl conversion parallel in the next push. It does not take long, but when the computing resources are available, why not use them fully?  
+There are still some edge cases where the filtering does not work. Cannot figure out where the problem lies, as it affects some of the harmless-looking ones. But Series Descriptions are usually a mess anyway, with varying conventions and no consistency. So do not filter if not needed. 
+Also make sure to adapt the target_dir_name in Dicom_splitter of multiprocessed.py, some scans have horrendous ids(including timecodes etc., maybe clean those with the metadata editer).    
+
 
 
 ### Common Issues
 
 1. **CUDA/GPU errors**: Make sure your CUDA installation matches your PyTorch version.
-2. **Memory errors**: Try processing with smaller batch sizes or on CPU if GPU memory is limited.
+2. **Memory errors**: Try processing with smaller batch sizes or on CPU if GPU memory is limited, or change the number of workers for the parallel processing especially for the stl conversion. 
 3. **Odd DICOM tags**: The majority of the conventions for the Series description were tested, but there might be an odd one out. Check the terminal after the conversion to see if the filenames were handled correctly.
 4. **PyTorch version**: Make sure the right PyTorch version (2.5.1) is installed, as there are compatibility issues with nnUNet and the newer version. 
 ### Reporting Issues
