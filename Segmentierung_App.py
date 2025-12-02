@@ -26,7 +26,7 @@ import pyvista as pv
 from stl import mesh
 from multi_stl import process_directory_parallel
 import shutil
-from cutting import masking, zcut
+from cutting import masking, zcut, cut_volume
 from multiprocessed import raw_data_to_nifti_parallel, nifti_renamer
 from modifier import merger, stl_renamer_with_lut
 import ttkbootstrap as tb
@@ -70,7 +70,7 @@ class ParameterGUI:
     def __init__(self, root):
         self.root = root
         self.root.title("Parameter Input GUI for nnUNet segmentation")
-        self.root.geometry("1100x650")
+        self.root.geometry("1100x750")
         self.style = tb.Style(theme='superhero') 
          # Create a queue for thread communication
         self.progress_queue = queue.Queue()
@@ -248,30 +248,63 @@ class ParameterGUI:
         self.split_nifti_check = tb.Checkbutton(preprocessing_frame, text="Split NIFTIs into left and right", variable=self.split_nifti_var)
         self.split_nifti_check.grid(row=0, column=1, columnspan=4,   sticky=tk.W, pady=5, padx= 5)
 
-        self.enable_zcut = tk.BooleanVar(value=False)
-        enable_checkbox = tb.Checkbutton(preprocessing_frame, 
-                                         text="Cut along z direction",
-                                         variable=self.enable_zcut,
-                                         command=self.toggle_zcut_inputs)
-        enable_checkbox.grid(row=1, column=0, sticky=W, pady=5, padx = 5)
+
+        self.enable_cut = tk.BooleanVar(value=False)
+        self.keep_originals = tk.BooleanVar(value=False)
+
         
-     
-        self.keep_originals= tk.BooleanVar(value=False)
-        self.keep_originals_checkbox = tb.Checkbutton(preprocessing_frame, text="Keep originals", variable=self.keep_originals, state=DISABLED)
-        self.keep_originals_checkbox.grid(row=1, column=1, sticky=W, pady=5, padx=5)
+        self.lower_x = tk.StringVar(value="")
+        self.upper_x = tk.StringVar(value="")
+        self.lower_y = tk.StringVar(value="")
+        self.upper_y = tk.StringVar(value="")
+        self.lower_z = tk.StringVar(value="")
+        self.upper_z = tk.StringVar(value="")
+
        
-        ttk.Label(preprocessing_frame, text="Lower:").grid(row=1, column=2, sticky=E, pady=(0, 10), padx=(0, 5))
-        self.lower_var = tk.StringVar(value="0")
-        self.lower_entry = tb.Entry(preprocessing_frame, textvariable=self.lower_var, width=10)
-        self.lower_entry.grid(row=1, column=3, sticky=tk.W, pady=(0, 10))
-        self.lower_entry["state"] = "disabled"
-        
-  
-        ttk.Label(preprocessing_frame, text="Upper:").grid(row=1, column=4, sticky=tk.E, pady=(0, 10), padx=(20, 5))
-        self.upper_var = tk.StringVar(value="0")
-        self.upper_entry = tb.Entry(preprocessing_frame, textvariable=self.upper_var, width=10)
-        self.upper_entry.grid(row=1, column=5, sticky=tk.W, pady=(0, 10))
-        self.upper_entry["state"] = "disabled"
+        self.cut_entries = []
+
+
+        enable_checkbox = tb.Checkbutton(
+            preprocessing_frame, 
+            text="Cut Volume (Crop)",
+            variable=self.enable_cut,
+            command=self.toggle_cut_inputs
+        )
+        enable_checkbox.grid(row=5, column=0, sticky="w", pady=5)
+
+        self.keep_originals_checkbox = tb.Checkbutton(
+            preprocessing_frame, 
+            text="Keep originals", 
+            variable=self.keep_originals, 
+            state="disabled"
+        )
+        self.keep_originals_checkbox.grid(row=5, column=1, columnspan=1, sticky="w", pady=(5, 10), padx=5)
+
+        # --- Column Headers (Row 1) ---
+        # Visual helper to tell user which column is which
+        ttk.Label(preprocessing_frame, text="Lower Bound").grid(row=5, column=1, padx=5, pady=2)
+        ttk.Label(preprocessing_frame, text="Upper Bound").grid(row=5, column=2, padx=5, pady=2)
+
+        # --- Axis Rows (Rows 2, 3, 4) ---
+        axes_settings = [
+            ("X-Axis:", self.lower_x, self.upper_x, 2),
+            ("Y-Axis:", self.lower_y, self.upper_y, 3),
+            ("Z-Axis:", self.lower_z, self.upper_z, 4),
+        ]
+
+        for label_text, low_var, up_var, row_idx in axes_settings:
+            # Axis Label
+            ttk.Label(preprocessing_frame, text=label_text).grid(row=row_idx+5, column=0, sticky="e", padx=5, pady=2)
+            
+            # Lower Entry
+            entry_l = tb.Entry(preprocessing_frame, textvariable=low_var, width=10, state="disabled")
+            entry_l.grid(row=row_idx+5, column=1, padx=5, pady=2)
+            self.cut_entries.append(entry_l)
+            
+            # Upper Entry
+            entry_u = tb.Entry(preprocessing_frame, textvariable=up_var, width=10, state="disabled")
+            entry_u.grid(row=row_idx+5, column=2, padx=5, pady=2)
+            self.cut_entries.append(entry_u)
 
    
         self.multiple_ids_var = tk.BooleanVar(value=False)
@@ -418,6 +451,17 @@ class ParameterGUI:
             # Update the menubutton display text
             self.update_menubutton_text()
             self.check_filter_activity()
+    def toggle_cut_inputs(self):
+        """Enable or disable all cutting inputs based on the main checkbox."""
+        # Determine state based on the checkbox
+        state = "normal" if self.enable_cut.get() else "disabled"
+        
+        # Toggle the 'Keep Originals' checkbox
+        self.keep_originals_checkbox.configure(state=state)
+        
+        # Toggle all Entry widgets
+        for entry in self.cut_entries:
+            entry.configure(state=state)
 
     def add_custom_indicator(self):
         """
@@ -621,10 +665,8 @@ class ParameterGUI:
             configuration = params["Configuration"]
             split = params['Split']
             multiple = params['Multiple']
-            lower = params['z-lower']
-            upper = params['z-upper']
-            cut_z = params['cut_z']
-            keep_originals= params["keep_originals"]
+            cut_enabled = params['cut_enabled']
+            keep_originals = params["keep_originals"]
             meshrepair = params["use_meshrepair"]
             remove_islands = params["remove_islands"]
             # Ensure output directories exist
@@ -637,36 +679,66 @@ class ParameterGUI:
             # Step 1: Convert DICOM to NIfTI 
             self.progress_queue.put(ProgressEvent(15, "Converting DICOM to NIfTI..."))
             
-            raw_data_to_nifti_parallel(input_path, scans_indicators=scan_indicators, group_filter=group_filter, use_default=use_default, max_workers=12)
+            raw_data_to_nifti_parallel(input_path, scans_indicators=scan_indicators, group_filter=group_filter, use_default=use_default, max_workers=10) #change back later to 12 
             # Step 2: Process NIfTI files - get files to process
             self.progress_queue.put(ProgressEvent(30, "Processing NIfTI files..."))
             
             inference_path = os.path.join(str(input_path.parent),r'NIFTI')
            
-            if cut_z:
-                try:
-                    lower = int(lower)
-                    upper = int(upper)
-                    
-                    if lower < 0:
-                        messagebox.showerror("Error", "Lower bound must be non-negative")
-                        return
-                    
-                    if lower >= upper:
-                        messagebox.showerror("Error", "Upper bound must be greater than lower bound")
-                        return
-                    
-                    for folder in os.listdir(inference_path):
-                        zcut(os.path.join(inference_path,folder),lower,upper, keep_original=keep_originals, backup_dir=input_path.parent/"uncut_nii")
-                
-                except Exception as e:
-                    messagebox.showerror("The NIFTIs cannot be cut along the z-axis, str({e}).")
-                    return
-           
             
                 
-                    
+            if cut_enabled:
+                try:
+                    # Helper to convert GUI string inputs to int or None
+                    def get_val(val):
+                        return int(val) if val and str(val).strip() != "" else None
+
+                    # 1. Collect inputs into variables from params
+                    lx, ly, lz = get_val(params['lower_x']), get_val(params['lower_y']), get_val(params['lower_z'])
+                    ux, uy, uz = get_val(params['upper_x']), get_val(params['upper_y']), get_val(params['upper_z'])
+
+                    # 2. Form the tuples (x, y, z)
+                    lower_bounds = (lx, ly, lz)
+                    upper_bounds = (ux, uy, uz)
+
+                    # 3. Validate bounds for all axes
+                    axes_labels = ['x', 'y', 'z']
+                    for i in range(3):
+                        l = lower_bounds[i]
+                        u = upper_bounds[i]
+
+                        if l is not None and l < 0:
+                            messagebox.showerror("Error", f"Lower bound for {axes_labels[i]}-axis must be non-negative")
+                            return False # Return False to stop processing
+
+                        if l is not None and u is not None:
+                            if l >= u:
+                                messagebox.showerror("Error", f"Upper bound must be greater than lower bound for {axes_labels[i]}-axis")
+                                return False
+
+                    # 4. Iterate and process
+                    # Make sure cut_volume is imported from your cutting module!
+                    for filename in os.listdir(inference_path):
+                        full_path = os.path.join(inference_path, filename)
+                        
+                        if os.path.isfile(full_path) and (filename.endswith('.nii') or filename.endswith('.nii.gz')):
+                            cut_volume(
+                                nii_path=full_path,
+                                lower=lower_bounds,
+                                upper=upper_bounds,
+                                keep_original=keep_originals, 
+                                destination_dir=inference_path,
+                                localiser="cut"
+                            )
+                            
+                except ValueError:
+                    messagebox.showerror("Error", "Please ensure all coordinates are valid integers.")
+                    return False
+                except Exception as e:
+                    messagebox.showerror("Error", f"The NIFTIs cannot be cut. Details: {str(e)}")
+                    return False
            
+   
             self.progress_queue.put(ProgressEvent(40, "Renaming NIfTI files..."))
             file_mapping = {}
             for i, folder in enumerate(os.listdir(inference_path)):
@@ -694,28 +766,76 @@ class ParameterGUI:
                 allow_tqdm=True
             )
             
-            
-            # Set the model based on the ID and configuration
-            predictor.initialize_from_trained_model_folder(
-                join(nnUNet_results, id_dict[selected_id]['Path_to_results'][configuration]),
+            if selected_id == 117 or selected_id == "117":
+                lowres_path = Path(input_path.parent) / 'label_lowres'
+                os.makedirs(Path(input_path.parent) / 'label_lowres')
+                print(f"Running cascade segemntation for ID {selected_id}" )
+                predictor.initialize_from_trained_model_folder(
+                join(nnUNet_results, id_dict[selected_id]['Path_to_results']['3d_lowres']),
                 use_folds=folds,
                 checkpoint_name="checkpoint_final.pth",
             )
+                
+                # Run prediction on the input data
             
-            # Run prediction on the input data
-        
-            self.progress_queue.put(ProgressEvent(60, "Running segmentation..."))
-            print("Starting nnU-Net prediction. Status updates will be suppressed from the log.")
-            with TerminalOnlyStdout():
-                predictor.predict_from_files(
-                    str(inference_path), 
-                    str(labelmap_output_path),
-                    save_probabilities=False,
-                    overwrite=False,
-                    num_processes_preprocessing=2,
-                    num_processes_segmentation_export=2,
-                    folder_with_segs_from_prev_stage=None, num_parts=1, part_id=0)
-            print("nnUNet segmentation done.")
+                self.progress_queue.put(ProgressEvent(60, "Running segmentation for lowres..."))
+                print("Starting nnU-Net prediction. Status updates will be suppressed from the log.")
+                with TerminalOnlyStdout():
+                    predictor.predict_from_files(
+                        str(inference_path), 
+                        str(lowres_path),
+                        save_probabilities=False,
+                        overwrite=False,
+                        num_processes_preprocessing=6,
+                        num_processes_segmentation_export=6,
+                        folder_with_segs_from_prev_stage=None, num_parts=1, part_id=0)
+                print("Done with lowres")
+
+                predictor.initialize_from_trained_model_folder(
+                join(nnUNet_results, id_dict[selected_id]['Path_to_results']['3d_cascade_fullres']),
+                use_folds=(0,),
+                checkpoint_name="checkpoint_final.pth",
+            )
+                
+                # Run prediction on the input data
+            
+                self.progress_queue.put(ProgressEvent(60, "Running segmentation for fullres cascade..."))
+                print("Starting nnU-Net prediction. Status updates will be suppressed from the log.")
+                with TerminalOnlyStdout():
+                    predictor.predict_from_files(
+                        str(inference_path), 
+                        str(labelmap_output_path),
+                        save_probabilities=False,
+                        overwrite=False,
+                        num_processes_preprocessing=6,
+                        num_processes_segmentation_export=6,
+                        folder_with_segs_from_prev_stage=str(lowres_path), num_parts=1, part_id=0)
+                    
+
+                print("nnUNet segmentation done.")
+           
+            else:
+            # Set the model based on the ID and configuration
+                predictor.initialize_from_trained_model_folder(
+                    join(nnUNet_results, id_dict[selected_id]['Path_to_results'][configuration]),
+                    use_folds=folds,
+                    checkpoint_name="checkpoint_final.pth",
+                )
+                
+                # Run prediction on the input data
+            
+                self.progress_queue.put(ProgressEvent(60, "Running segmentation..."))
+                print("Starting nnU-Net prediction. Status updates will be suppressed from the log.")
+                with TerminalOnlyStdout():
+                    predictor.predict_from_files(
+                        str(inference_path), 
+                        str(labelmap_output_path),
+                        save_probabilities=False,
+                        overwrite=False,
+                        num_processes_preprocessing=2,
+                        num_processes_segmentation_export=2,
+                        folder_with_segs_from_prev_stage=None, num_parts=1, part_id=0)
+                print("nnUNet segmentation done.")
 
             #Masking after segmentation, should not cause problems in the segmentation is faster and background is 0 for every file 
             
@@ -728,7 +848,7 @@ class ParameterGUI:
             self.progress_queue.put(ProgressEvent(80, "Converting segmentations to STL..."))
             print("Starting with batched stl conversion.")
             # Get label files from the output directory
-            process_directory_parallel(labelmap_output_path, stl_output_path, segment_params=segment_params[selected_id], split=split, use_pymeshfix=meshrepair, remove_islands=remove_islands)
+            process_directory_parallel(labelmap_output_path, stl_output_path, segment_params=segment_params[selected_id], split=split, use_pymeshfix=meshrepair, remove_islands=remove_islands, max_workers=10)
             
             self.progress_queue.put(ProgressEvent(90, "STL names back to original names..."))
             stl_renamer_with_lut(stl_output_path=stl_output_path, file_mapping=file_mapping)
@@ -774,9 +894,22 @@ class ParameterGUI:
 
          # Check if processing is already running
         if self.processing_running:
-            messagebox.showwarning("Processing in Progress", 
-                                  "Please wait for the current operation to complete.")
-            return
+            # Ask the user if they want to force a restart
+            confirm_override = messagebox.askyesno(
+                "Processing in Progress", 
+                "An operation is currently running.\n\n"
+                "Do you want to force a restart? (The previous background process will continue until completion, but the UI will track the new one)."
+            )
+            
+            if confirm_override:
+                # Reset the flag to allow the new process to start
+                self.processing_running = False
+                # Optional: Clear the progress bar visually to indicate a reset
+                self.progress_var.set(0)
+                self.status_var.set("Restarting...")
+            else:
+                # User clicked No, so we exit
+                return
 
         if not self.input_path.get()  or not self.id_var.get():
             messagebox.showerror("Error", "Input path and ID are required")
@@ -795,10 +928,14 @@ class ParameterGUI:
             "Folds": [i for var, i in self.folds_checkbuttons if var.get()],
             'Split' : self.split_nifti_var.get(),
             'Multiple': self.multiple_ids_var.get(),
-            'z-lower': self.lower_var.get(),
-            'z-upper': self.upper_var.get(),
-            'cut_z': self.enable_zcut.get(),
-            'keep_originals' : self.keep_originals.get(),
+            'cut_enabled': self.enable_cut.get(),
+            'lower_x': self.lower_x.get(),
+            'upper_x': self.upper_x.get(),
+            'lower_y': self.lower_y.get(),
+            'upper_y': self.upper_y.get(),
+            'lower_z': self.lower_z.get(),
+            'upper_z': self.upper_z.get(),
+            'keep_originals': self.keep_originals.get(),
             'use_meshrepair': self.meshfix_var.get(),
             'remove_islands' : self.islands_var.get()
         }

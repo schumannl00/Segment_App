@@ -73,8 +73,8 @@ def DICOM_splitter(path):
                 if not series_number: 
                     series_number = 111
                 string_number = str(series_number) 
-                
-                target_dir_name = f"{file_PatientName}_{file_series_id}_Series{string_number}_{file_series_description}"  
+                #Change if needed.
+                target_dir_name = f"{file_PatientName}_{file_PatientName}_Series{string_number}_{file_series_description}"  
                 description_path = sort_dir / target_dir_name
 
                 
