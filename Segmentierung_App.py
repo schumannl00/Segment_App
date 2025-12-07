@@ -28,7 +28,7 @@ from multi_stl import process_directory_parallel
 import shutil
 from cutting import masking, zcut, cut_volume
 from multiprocessed import raw_data_to_nifti_parallel, nifti_renamer
-from modifier import merger, stl_renamer_with_lut
+from modifier import  stl_renamer_with_lut
 import ttkbootstrap as tb
 from ttkbootstrap.constants import *
 import logging
@@ -244,8 +244,7 @@ class ParameterGUI:
 
 
         self.split_nifti_var = tk.BooleanVar(value=False)
-        tb.Label(preprocessing_frame, text= "Cutting along x direction:").grid(row=0, column =0, sticky = W, pady = 5, padx = 5)
-        self.split_nifti_check = tb.Checkbutton(preprocessing_frame, text="Split NIFTIs into left and right", variable=self.split_nifti_var)
+        self.split_nifti_check = tb.Checkbutton(preprocessing_frame, text="Split NIFTIs into left and right along x axis", variable=self.split_nifti_var)
         self.split_nifti_check.grid(row=0, column=1, columnspan=4,   sticky=tk.W, pady=5, padx= 5)
 
 
@@ -307,19 +306,19 @@ class ParameterGUI:
             self.cut_entries.append(entry_u)
 
    
-        self.multiple_ids_var = tk.BooleanVar(value=False)
-        self.multiple_ids_check =tb.Checkbutton(preprocessing_frame, text="Does the Input Folder have indiviudual subfolders \n e.g. multiple patients? Use custom filters ('+' -Button) as  naming conventions might vary.", variable=self.multiple_ids_var)
-        self.multiple_ids_check.grid(row=2, column=0, columnspan=6, sticky=W, pady=(0, 10))
+        self.just_name = tk.BooleanVar(value=True)
+        self.just_name_check =tb.Checkbutton(preprocessing_frame, text="Just use the name for the folders/names, safe if IDs are messy with timescodes etc.", variable=self.just_name)
+        self.just_name_check.grid(row=2, column=0, columnspan=6, sticky=tk.W, pady=(0, 10))
 
  
         self.meshfix_var = tk.BooleanVar(value=True)
         self.meshfix_check = tb.Checkbutton(preprocessing_frame, text= "Appply Pymesh meshrepair (caps open stls as well)",  variable=self.meshfix_var, command=self.on_meshfix_toggle)
-        self.meshfix_check.grid(row=3, column=0, columnspan=6, sticky = W, pady=(0,10))
+        self.meshfix_check.grid(row=3, column=0, columnspan=6, sticky = tk.W, pady=(0,10))
 
     
         self.islands_var = tk.BooleanVar(value=True)
         self.islands_check = tb.Checkbutton(preprocessing_frame, text= "Remove all but the largest element from stl",  variable=self.islands_var)
-        self.islands_check.grid(row=4, column=0, columnspan=6, sticky = W, pady=(0,10))
+        self.islands_check.grid(row=4, column=0, columnspan=6, sticky = tk.W, pady=(0,10))
 
 
         # Button frame at the bottom
@@ -664,7 +663,7 @@ class ParameterGUI:
             group_filter = None if use_default else params["Group Filter"]
             configuration = params["Configuration"]
             split = params['Split']
-            multiple = params['Multiple']
+            just_name = params['name_only']
             cut_enabled = params['cut_enabled']
             keep_originals = params["keep_originals"]
             meshrepair = params["use_meshrepair"]
@@ -673,13 +672,11 @@ class ParameterGUI:
             os.makedirs(stl_output_path, exist_ok=True)
             os.makedirs(labelmap_output_path, exist_ok=True)
             #Step 0: Convert input directory into single folder if multiple selected
-            if multiple: 
-                self.progress_queue.put(ProgressEvent(5, "Merging multiple folders..."))
-                input_path= merger(input_path)
+          
             # Step 1: Convert DICOM to NIfTI 
             self.progress_queue.put(ProgressEvent(15, "Converting DICOM to NIfTI..."))
             
-            raw_data_to_nifti_parallel(input_path, scans_indicators=scan_indicators, group_filter=group_filter, use_default=use_default, max_workers=10) #change back later to 12 
+            raw_data_to_nifti_parallel(input_path, scans_indicators=scan_indicators, group_filter=group_filter, use_default=use_default, max_workers=10, use_only_name=just_name, max_workers_dicom=32) #change back later to 12 
             # Step 2: Process NIfTI files - get files to process
             self.progress_queue.put(ProgressEvent(30, "Processing NIfTI files..."))
             
@@ -937,7 +934,8 @@ class ParameterGUI:
             'upper_z': self.upper_z.get(),
             'keep_originals': self.keep_originals.get(),
             'use_meshrepair': self.meshfix_var.get(),
-            'remove_islands' : self.islands_var.get()
+            'remove_islands' : self.islands_var.get(), 
+            'name_only' : self.just_name.get()
         }
 
         # Show summary of parameters
