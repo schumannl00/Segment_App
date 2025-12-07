@@ -5,10 +5,12 @@ import pydicom
 import dicom2nifti
 from pathlib import Path
 import concurrent.futures
+from concurrent.futures import ThreadPoolExecutor, as_completed
 import time # For potential timing/debugging
 from dicom2nifti import settings
 from pydicom.errors import InvalidDicomError
 import json
+import numpy as np
 
 settings. disable_validate_slice_increment()
 
@@ -22,84 +24,128 @@ def build_pattern(indicator):
     return re.compile(pattern_core, re.IGNORECASE)
 
 
-def DICOM_splitter(path):
-    """Sorts DICOM files from a source directory into subdirectories
-       based on PatientID, Modality, and SeriesDescription."""
+
+
+# Precompiled regex
+sanitize_general = re.compile(r'[\\/*?:"<>|_]')
+sanitize_spaces = re.compile(r'\s+')
+
+def clean_string(s):
+    s = sanitize_general.sub("-", s)
+    s = sanitize_spaces.sub("-", s)
+    s = s.strip().rstrip(".")
+    return s or "Unknown"
+
+
+def safe_copy(src_dst):
+    src, dst = src_dst
+    try:
+        shutil.copyfile(src, dst)
+        return True
+    except Exception as e:
+        return e
+
+
+def DICOM_splitter(path, max_workers=32, use_only_name : bool = True):
     p = Path(path)
-   
+
     sort_dir = p.parent / 'sortiert'
     nifti_out_dir = p.parent / 'NIFTI'
-
     sort_dir.mkdir(exist_ok=True)
     nifti_out_dir.mkdir(exist_ok=True)
 
     print(f"Sorting DICOMs from: {p}")
     print(f"Output sorted DICOMs to: {sort_dir}")
     print(f"Output NIFTI files to: {nifti_out_dir}")
-
+    print(f"Using only PatientName for folder naming: {use_only_name}")
 
     copied_files = 0
     skipped_files = 0
     error_files = 0
 
-    for f in os.listdir(p):
-        original_file_path = p / f
-        if original_file_path.is_file():
-            try:
-                read_file = pydicom.dcmread(original_file_path, stop_before_pixels=True, force=True) # Read only header info initially
-                file_name = original_file_path.name
+    needed_tags = [
+        "PatientID",
+        "PatientName",
+        "Modality",
+        "SeriesDescription",
+        "SeriesNumber"]
 
-                # Determine Patient ID (handle missing attribute)
-                if hasattr(read_file, 'PatientID') and read_file.PatientID:
-                    file_series_id = re.sub(r'[\\/*?:"<>|_]', '-', str(read_file.PatientID).strip())
-                elif hasattr(read_file, 'PatientName') and read_file.PatientName:
-                    # Use PatientName as fallback, sanitize it for path usage
-                    file_series_id = re.sub(r'[\\/*?:"<>|_]', '-', str(read_file.PatientName).strip())
-                else:
-                    file_series_id = "UnknownPatient" # Fallback if neither exists
+    files_to_copy = []
+    known_dirs = set()  # avoid repeated mkdir costs
 
-                # Determine Modality (handle missing attribute)
-                file_modality = str(getattr(read_file, 'Modality', 'UnknownModality')).strip()
-                file_PatientName = re.sub(r'[\\/*?:"<>|_]', '-', str(read_file.PatientName))   #removed  str(read_file.PatientName).strip()
-                # Determine Series Description (handle missing attribute)
-                file_series_description = str(getattr(read_file, 'SeriesDescription', 'UnknownSeries')).strip()
-                # Sanitize description for path usage
-                file_series_description = re.sub(r'[\\/*?:"<>|]', '_', file_series_description)
-                file_series_description = re.sub(r'\s+', '_', file_series_description)
-                if not file_series_description:
-                    file_series_description = "UnknownSeries"
-                series_number_tag = (0x0020,0x0011)
-                series_number = read_file[series_number_tag].value
-                if not series_number: 
-                    series_number = 111
-                string_number = str(series_number) 
-                #Change if needed.
-                target_dir_name = f"{file_PatientName}_{file_PatientName}_Series{string_number}_{file_series_description}"  
-                description_path = sort_dir / target_dir_name
+    # -----------------------------
+    # PASS 1: FAST SCAN + PARSE
+    # -----------------------------
+    print("Scanning DICOM files and preparing copy list...")
+    for original_file_path in p.rglob("*"):
+        if not original_file_path.is_file():
+            continue
 
-                
-                description_path.mkdir(exist_ok=True)
+        try:
+            dcm = pydicom.dcmread(
+                original_file_path,
+                stop_before_pixels=True,
+                force=True,
+                specific_tags=needed_tags,
+            )
 
-                # Copy the file
-                target_file_path = description_path / file_name
-                # Avoid re-copying if file exists (optional, can speed up re-runs)
-                if not target_file_path.exists():
-                     shutil.copyfile(original_file_path, target_file_path)
-                     copied_files += 1
-                else:
-                     skipped_files +=1
+            # Extract tags
+            pid = getattr(dcm, "PatientID", "UnknownID")
+            pname = getattr(dcm, "PatientName", "UnknownName")
+            sdesc = getattr(dcm, "SeriesDescription", "UnknownSeries")
+            snum = getattr(dcm, "SeriesNumber", 0)
 
+            pid = clean_string(str(pid))
+            pname = clean_string(str(pname))
+            sdesc = clean_string(str(sdesc))
+            snum = str(snum)
 
-            except Exception as e:
-                print(f"Error processing file {original_file_path}: {e}")
+            if use_only_name:
+                folder = sort_dir / f"{pname}_{pname}_Series{snum}_{sdesc}"
+            else:
+                folder = sort_dir / f"{pid}_{pname}_Series{snum}_{sdesc}"
+
+            # Create folder once
+            if folder not in known_dirs:
+                folder.mkdir(exist_ok=True, parents=True)
+                known_dirs.add(folder)
+
+            target = folder / original_file_path.name
+
+            if not target.exists():
+                files_to_copy.append((original_file_path, target))
+            else:
+                skipped_files += 1
+
+        except Exception as e:
+            print(f"Failed reading {original_file_path}: {e}")
+            error_files += 1
+    
+    # ------------------------------------------------------
+    # PASS 2: PARALLEL COPY (I/O bound → threads are ideal)
+    # ------------------------------------------------------
+    print(f"\nStarting parallel copy of {len(files_to_copy)} files...")
+
+    with ThreadPoolExecutor(max_workers=max_workers) as exe:
+        futures = [exe.submit(safe_copy, pair) for pair in files_to_copy]
+
+        for fut in as_completed(futures):
+            result = fut.result()
+            if result is True:
+                copied_files += 1
+            else:
                 error_files += 1
-                continue 
 
-    print(f"DICOM Sorting Summary:")
+    # -----------------------------
+    # Summary
+    # -----------------------------
+    print("\nDICOM Sorting Summary:")
     print(f"  Copied: {copied_files}")
-    print(f"  Skipped (already exist): {skipped_files}")
+    print(f"  Skipped: {skipped_files}")
     print(f"  Errors: {error_files}")
-    return sort_dir, nifti_out_dir 
+
+    return sort_dir, nifti_out_dir
+
 
 # --- Helper function for converting a single series ---
 def convert_single_series_to_nifti(input_dir_path, output_nifti_path):
@@ -126,7 +172,7 @@ def convert_single_series_to_nifti(input_dir_path, output_nifti_path):
         return (str(input_dir_path), False, error_msg) # Return input, failure status, error message
 
 # --- Main function using ProcessPoolExecutor ---
-def raw_data_to_nifti_parallel(raw_path, scans_indicators=None, group_filter = None, use_default=False, max_workers=12):
+def raw_data_to_nifti_parallel(raw_path, scans_indicators=None, group_filter = None, use_default=False, max_workers=12, use_only_name=True, max_workers_dicom=32):
     """
     Sorts DICOMs and converts selected series to NIFTI in parallel.
 
@@ -140,6 +186,8 @@ def raw_data_to_nifti_parallel(raw_path, scans_indicators=None, group_filter = N
                                       ignoring scans_indicators. Defaults to False.
         max_workers (int, optional): Maximum number of processes to use for conversion.
                                      Defaults to 12.
+        use_only_name (bool, optional): If True, uses only PatientName for folder naming during DICOM splitting.
+                                        Defaults to True.
     """
     start_time = time.time()
     p = Path(raw_path)
@@ -151,7 +199,7 @@ def raw_data_to_nifti_parallel(raw_path, scans_indicators=None, group_filter = N
     print("-" * 20)
     print("Step 1: Sorting DICOM files...")
     try:
-        sort_dir, nifti_out_dir = DICOM_splitter(raw_path)
+        sort_dir, nifti_out_dir = DICOM_splitter(raw_path, max_workers=max_workers_dicom, use_only_name=use_only_name)
         if not sort_dir or not nifti_out_dir:
              print("DICOM splitting failed to return valid directories.")
              return
@@ -392,4 +440,4 @@ if __name__ == "__main__":
     from multiprocessing import freeze_support
     freeze_support()  # This is needed for Windows
     # Your function call here
-    modify_dcms(r"E:\fehlerhaft_final\108-25L P^27092025_108-25L P^27092025_OSG_G6_ER_DF_0,80_Br64_A1_KF_duenn_L", custom=True, new_desc=False, new_name=False)
+    raw_data_to_nifti_parallel(r"C:\Users\schum\Downloads\Covid Scans\Covid Scans\Subject (1)\test", use_default=False, max_workers=8, use_only_name=False, scans_indicators=["Lung-1.5"])
