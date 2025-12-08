@@ -13,15 +13,12 @@ import json
 import numpy as np
 
 settings. disable_validate_slice_increment()
-
+#rewrote  so no splitting needed anymore, any spaces are replaced by - already 
 def build_pattern(indicator):
-    parts = re.split(r'\s+', indicator.strip())
-    parts = [part for part in parts if part]
-    escaped_parts = [re.escape(part) for part in parts]
-    separator_pattern = r'[\s_,]+'
-    pattern_core = separator_pattern.join(escaped_parts)
-    #final_pattern = r"(?<!\w)" + pattern_core + r"(?!\w)"
-    return re.compile(pattern_core, re.IGNORECASE)
+    forbidden_boundary = r"[\w.+\-]"
+    escaped_indicator = re.escape(indicator)
+    pattern = f"(?<!{forbidden_boundary}){escaped_indicator}(?!{forbidden_boundary})"
+    return re.compile(pattern, re.IGNORECASE)
 
 
 
@@ -218,7 +215,7 @@ def raw_data_to_nifti_parallel(raw_path, scans_indicators=None, group_filter = N
     if scans_indicators and not use_default:
         # Compile regex patterns for faster matching if indicators are provided
         try:
-            patterns = [build_pattern(indicator) for indicator in scans_indicators]
+            patterns = [build_pattern(clean_string(indicator)) for indicator in scans_indicators]
             print(f"Using scan indicators: {scans_indicators}")
         except re.error as e:
             print(f"Error compiling regex for scan indicators: {e}. Please check indicators: {scans_indicators}")
@@ -440,4 +437,4 @@ if __name__ == "__main__":
     from multiprocessing import freeze_support
     freeze_support()  # This is needed for Windows
     # Your function call here
-    raw_data_to_nifti_parallel(r"C:\Users\schum\Downloads\Covid Scans\Covid Scans\Subject (1)\test", use_default=False, max_workers=8, use_only_name=False, scans_indicators=["Lung-1.5"])
+    raw_data_to_nifti_parallel(r"C:\Users\schum\Downloads\Covid Scans\Covid Scans\Subject (1)\test", use_default=False, max_workers=8, use_only_name=False, scans_indicators=["Lung 1.5",])
