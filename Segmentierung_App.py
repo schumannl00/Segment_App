@@ -70,7 +70,7 @@ class ParameterGUI:
     def __init__(self, root):
         self.root = root
         self.root.title("Parameter Input GUI for nnUNet segmentation")
-        self.root.geometry("1100x750")
+        self.root.geometry("1300x750")
         self.style = tb.Style(theme='superhero') 
          # Create a queue for thread communication
         self.progress_queue = queue.Queue()
@@ -132,7 +132,7 @@ class ParameterGUI:
 
         # Row 3: Scan Indicators (as set of strings)
         indicator_frame = tb.LabelFrame(main_frame, text= "Filter out specific scan", padding = "10", bootstyle= WARNING)
-        indicator_frame.grid(row=1, column=0, columnspan=6, sticky=EW, pady=(0,10))
+        indicator_frame.grid(row=2, column=0, columnspan=6, sticky=EW, pady=(0,10))
         indicator_frame.columnconfigure(0, weight=1)
 
 
@@ -188,7 +188,7 @@ class ParameterGUI:
         # Row 4: Select ID and Configurations
 
         config_group_frame = tb.LabelFrame(main_frame, text="Details for the segmentation", padding = "10", bootstyle= INFO)
-        config_group_frame.grid(row=2, column=0, columnspan=1, sticky=EW, pady=(0, 10)) # Use grid in main_frame
+        config_group_frame.grid(row=3, column=0, columnspan=1, sticky=EW, pady=(0, 5)) # Use grid in main_frame
         config_group_frame.columnconfigure(1, weight=1)
 
 
@@ -224,7 +224,7 @@ class ParameterGUI:
         self.folds_var = tk.StringVar(value="0,1,2,3,4")  # Default value of 5 folds
         self.folds_checkbuttons = []
         for i in range(5):
-            var = tk.BooleanVar(value=False)  
+            var = tk.BooleanVar(value=True)  
             check = tb.Checkbutton(self.folds_frame, text=f"Fold {i}", variable=var)
             check.grid(row=0, column=i, padx=5, pady=5)
             self.folds_checkbuttons.append((var, i))
@@ -237,7 +237,7 @@ class ParameterGUI:
        #Processing
     
         preprocessing_frame = tb.LabelFrame(main_frame, text="Processing Options", padding = "10", bootstyle= INFO)
-        preprocessing_frame.grid(row=2, column=1, columnspan=4, sticky=EW, pady=(0, 5), padx=5) # Use grid in main_frame
+        preprocessing_frame.grid(row=3, column=1, columnspan=4, sticky=EW, pady=(0, 5), padx=5) # Use grid in main_frame
         preprocessing_frame.columnconfigure(1, weight=1)
 
 
@@ -245,7 +245,7 @@ class ParameterGUI:
 
         self.split_nifti_var = tk.BooleanVar(value=False)
         self.split_nifti_check = tb.Checkbutton(preprocessing_frame, text="Split NIFTIs into left and right along x axis", variable=self.split_nifti_var)
-        self.split_nifti_check.grid(row=0, column=1, columnspan=4,   sticky=tk.W, pady=5, padx= 5)
+        self.split_nifti_check.grid(row=0, column=0, columnspan=4,   sticky=tk.W, pady= (0,10) )
 
 
         self.enable_cut = tk.BooleanVar(value=False)
@@ -277,7 +277,7 @@ class ParameterGUI:
             variable=self.keep_originals, 
             state="disabled"
         )
-        self.keep_originals_checkbox.grid(row=5, column=1, columnspan=1, sticky="w", pady=(5, 10), padx=5)
+        self.keep_originals_checkbox.grid(row=5, column=1, columnspan=1, sticky="w", pady=5, padx=(10,10))
 
         # --- Column Headers (Row 1) ---
         # Visual helper to tell user which column is which
@@ -320,10 +320,18 @@ class ParameterGUI:
         self.islands_check = tb.Checkbutton(preprocessing_frame, text= "Remove all but the largest element from stl",  variable=self.islands_var)
         self.islands_check.grid(row=4, column=0, columnspan=6, sticky = tk.W, pady=(0,10))
 
+        #Option for Loading NIFTIs
+        config_input_frame = tb.LabelFrame(main_frame, text= "Input options", padding = "10", bootstyle= WARNING)
+        config_input_frame.grid(row=1, column=0, columnspan=6, sticky=EW, pady=(0,10)) # Use grid in main_frame
+        config_input_frame.columnconfigure(0, weight=1)
+
+        self.input_nifti = tk.BooleanVar(value=False)
+        self.input_nifti_check = tb.Checkbutton(config_input_frame, text= "NIFTIs are used as input, disables conversion. Click Keep originals for cropping otherwise it is destructive.",  variable=self.input_nifti)
+        self.input_nifti_check.grid(row=0, column=0, columnspan=6, sticky = tk.W, pady=(0,10))
 
         # Button frame at the bottom
         button_frame = ttk.Frame(main_frame)
-        button_frame.grid(row=3, column=0, columnspan=2, pady=(20, 0))
+        button_frame.grid(row=4, column=0, columnspan=2, pady=(20, 0))
         submit_button = tb.Button(button_frame, text="Submit", command=self.submit, bootstyle= SUCCESS)
         submit_button.pack(side=tk.LEFT, padx=(0, 10))
         clear_button = tb.Button(button_frame, text="Clear", command=self.clear_fields, bootstyle = WARNING)
@@ -332,7 +340,7 @@ class ParameterGUI:
         # Progress bar for displaying operation progress
         self.progress_var = tk.DoubleVar()
         self.progress_bar = tb.Progressbar(main_frame, variable=self.progress_var, maximum=100)
-        self.progress_bar.grid(row=4, column=0, columnspan=2, sticky=(tk.W, tk.E), pady=(10, 0))
+        self.progress_bar.grid(row=5, column=0, columnspan=2, sticky=(tk.W, tk.E), pady=(10, 0))
         
         # Segment parameters editing window
         self.segment_params_button = tb.Button(button_frame, text="Edit Segment Params", command=self.edit_segment_params)
@@ -349,6 +357,7 @@ class ParameterGUI:
 
         self.input_path.trace_add('write', self.schedule_indicator_scanning)
         self.check_filter_activity()
+
     def schedule_indicator_scanning(self, *args):
     
         path = self.input_path.get()
@@ -650,7 +659,7 @@ class ParameterGUI:
     def process_data(self, params):
         """Process the input data using the parameters from the GUI"""
         try:
-            self.progress_queue.put(ProgressEvent(10, "Converting DICOM to NIfTI..."))
+            
             # Convert string path to Path object if needed
             input_path = Path(params["Input Path"]) if not isinstance(params["Input Path"], Path) else params["Input Path"]
             stl_output_path = Path(params["STL Output Path"]) if params["STL Output Path"] else Path(input_path.parent) / "stl"
@@ -668,23 +677,28 @@ class ParameterGUI:
             keep_originals = params["keep_originals"]
             meshrepair = params["use_meshrepair"]
             remove_islands = params["remove_islands"]
+            nifti_input = params["nifti_input"]
             # Ensure output directories exist
             os.makedirs(stl_output_path, exist_ok=True)
             os.makedirs(labelmap_output_path, exist_ok=True)
-            #Step 0: Convert input directory into single folder if multiple selected
-          
-            # Step 1: Convert DICOM to NIfTI 
-            self.progress_queue.put(ProgressEvent(15, "Converting DICOM to NIfTI..."))
-            
-            raw_data_to_nifti_parallel(input_path, scans_indicators=scan_indicators, group_filter=group_filter, use_default=use_default, max_workers=10, use_only_name=just_name, max_workers_dicom=32) #change back later to 12 
+            if not nifti_input: 
+                # Step 1: Convert DICOM to NIfTI 
+                self.progress_queue.put(ProgressEvent(10, "Converting DICOM to NIfTI..."))
+                
+                raw_data_to_nifti_parallel(input_path, scans_indicators=scan_indicators, group_filter=group_filter, use_default=use_default, max_workers=14, use_only_name=just_name, max_workers_dicom=32) #change back later to 12 
+                inference_path = os.path.join(str(input_path.parent),r'NIFTI')
             # Step 2: Process NIfTI files - get files to process
-            self.progress_queue.put(ProgressEvent(30, "Processing NIfTI files..."))
             
-            inference_path = os.path.join(str(input_path.parent),r'NIFTI')
+            else: 
+                self.progress_queue.put(ProgressEvent(10, "Starting with NIfTI..."))
+                inference_path = input_path
+            
+            
            
             
                 
             if cut_enabled:
+                self.progress_queue.put(ProgressEvent(30, "Processing NIfTI files"))
                 try:
                     # Helper to convert GUI string inputs to int or None
                     def get_val(val):
@@ -717,16 +731,28 @@ class ParameterGUI:
                     # Make sure cut_volume is imported from your cutting module!
                     for filename in os.listdir(inference_path):
                         full_path = os.path.join(inference_path, filename)
-                        
-                        if os.path.isfile(full_path) and (filename.endswith('.nii') or filename.endswith('.nii.gz')):
-                            cut_volume(
-                                nii_path=full_path,
-                                lower=lower_bounds,
-                                upper=upper_bounds,
-                                keep_original=keep_originals, 
-                                destination_dir=inference_path,
-                                localiser="cut"
-                            )
+                        if keep_originals: 
+                            cut_path = Path(input_path.parent) / "NIFTI_cropped"
+                            if os.path.isfile(full_path) and (filename.endswith('.nii') or filename.endswith('.nii.gz')):
+                                cut_volume(
+                                    nii_path=full_path,
+                                    lower=lower_bounds,
+                                    upper=upper_bounds,
+                                    keep_original=keep_originals, 
+                                    destination_dir=cut_path,
+                                    localiser="cut"
+                                )
+                        else: 
+                                cut_volume(
+                                    nii_path=full_path,
+                                    lower=lower_bounds,
+                                    upper=upper_bounds,
+                                    keep_original=keep_originals, 
+                                    destination_dir=inference_path,
+                                    localiser="cut"
+                                )
+                    if keep_originals: 
+                        inference_path = cut_path
                             
                 except ValueError:
                     messagebox.showerror("Error", "Please ensure all coordinates are valid integers.")
@@ -783,8 +809,8 @@ class ParameterGUI:
                         str(lowres_path),
                         save_probabilities=False,
                         overwrite=False,
-                        num_processes_preprocessing=6,
-                        num_processes_segmentation_export=6,
+                        num_processes_preprocessing=4,
+                        num_processes_segmentation_export=4,
                         folder_with_segs_from_prev_stage=None, num_parts=1, part_id=0)
                 print("Done with lowres")
 
@@ -804,8 +830,8 @@ class ParameterGUI:
                         str(labelmap_output_path),
                         save_probabilities=False,
                         overwrite=False,
-                        num_processes_preprocessing=6,
-                        num_processes_segmentation_export=6,
+                        num_processes_preprocessing=4,
+                        num_processes_segmentation_export=4,
                         folder_with_segs_from_prev_stage=str(lowres_path), num_parts=1, part_id=0)
                     
 
@@ -924,7 +950,6 @@ class ParameterGUI:
             "Configuration": self.config_var.get(),
             "Folds": [i for var, i in self.folds_checkbuttons if var.get()],
             'Split' : self.split_nifti_var.get(),
-            'Multiple': self.multiple_ids_var.get(),
             'cut_enabled': self.enable_cut.get(),
             'lower_x': self.lower_x.get(),
             'upper_x': self.upper_x.get(),
@@ -935,7 +960,8 @@ class ParameterGUI:
             'keep_originals': self.keep_originals.get(),
             'use_meshrepair': self.meshfix_var.get(),
             'remove_islands' : self.islands_var.get(), 
-            'name_only' : self.just_name.get()
+            'name_only' : self.just_name.get(),
+            "nifti_input" : self.input_nifti.get()
         }
 
         # Show summary of parameters
