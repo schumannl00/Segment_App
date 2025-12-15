@@ -11,7 +11,7 @@ import json
 
 
 # Helper function to process a single NIfTI image and mask pair
-def process_single_hu_mask_pair(hu_nii_path : Path , labelmap_path: Path , original_subject_filename : str, labelmap_filename : str , hu_nii_filename: str, stl_metadata_map: dict, id: int, labels_dict: dict) -> list:
+def process_single_hu_mask_pair(hu_nii_path : Path , labelmap_path: Path , original_subject_filename : str, labelmap_filename : str , hu_nii_filename: str, id: int, labels_dict: dict) -> list:
     """
     Processes a single image/mask pair, calculates HU statistics, merges mesh data,
     and computes T-scores for specified bone density labels.
@@ -23,6 +23,7 @@ def process_single_hu_mask_pair(hu_nii_path : Path , labelmap_path: Path , origi
     
     try:
         # Load NIfTI Image and Mask
+        print(f"Processing: {hu_nii_filename} and {labelmap_filename}")
         hu_img = nib.load(hu_nii_path)
         mask_img = nib.load(labelmap_path)
         
@@ -57,17 +58,7 @@ def process_single_hu_mask_pair(hu_nii_path : Path , labelmap_path: Path , origi
             skewness = stats.skew(roi_hu_values)
             kurtosis = stats.kurtosis(roi_hu_values)
 
-            # --- 2. T-Score Calculation (if applicable) ---
-            
-            
-            # --- 3. Mesh Data Merging ---
-            mesh_key = f"{nnunet_simple_name}_{int(label)}"
-            mesh_data = stl_metadata_map.get(mesh_key, {
-                "Surface_Area_mm2": np.nan, 
-                "Mesh_Volume_mm3": np.nan
-            })
-            
-            # --- 4. Assemble Final Entry ---
+
             stats_entry = {
                 'Subject_File': original_subject_filename, 
                 'Label_ID': int(label),
@@ -82,10 +73,8 @@ def process_single_hu_mask_pair(hu_nii_path : Path , labelmap_path: Path , origi
                 'Skewness': skewness,
                 'Kurtosis': kurtosis,
                 '25th_Percentile_HU': np.percentile(roi_hu_values, 25),
-                '75th_Percentile_HU': np.percentile(roi_hu_values, 75),
-                'Mesh_Surface_Area_mm2': mesh_data['Surface_Area_mm2'],
-                'Mesh_Volume_mm3': mesh_data['Mesh_Volume_mm3'],
-            }
+                '75th_Percentile_HU': np.percentile(roi_hu_values, 75), } 
+                
             
             results_list.append(stats_entry)
             
@@ -97,26 +86,15 @@ def process_single_hu_mask_pair(hu_nii_path : Path , labelmap_path: Path , origi
     return results_list
 
 # The main function using concurrent futures
-def calculate_hu_stats(inference_path : Path, labelmap_output_path : Path, file_mapping : dict, output_directory : Path , stl_metadata_path : str , max_workers :int =12, id : str = None, labels_dict : dict =None):
+def calculate_hu_stats(inference_path : Path, labelmap_output_path : Path, file_mapping : dict, output_directory : Path , max_workers :int =12, id : str = None, labels_dict : dict =None):
 
     
 
     NNUNET_CHANNEL_SUFFIX = "_0000"
  
 
-    # Load STL metadata map (Crucial for merging mesh properties we compute anyway  in stl generation for safety)
-    stl_metadata_map = {}
-    if Path(stl_metadata_path).exists():
-        with open(stl_metadata_path, 'r') as f:
-            try:
-                stl_metadata_map = json.load(f)
-                print(f"Loaded mesh metadata from {stl_metadata_path}")
-            except json.JSONDecodeError:
-                print("Warning: Failed to decode STL metadata file. Shape features will be missing.")
-    else:
-        print(f"Warning: STL metadata file not found at {stl_metadata_path}. Shape features will be missing.")
-
-    # Create inverted mapping: nnUNet_Base_Name (e.g., 'Leg_001') -> Original_Nii_Filename (e.g., 'PID_PNAME_...')
+   
+    # Create inverted mapping: nnUNet_Base_Name (e.g., 'Leg_001_0000') -> Original_Nii_Filename (e.g., 'PID_PNAME_...')
     inverted_mapping = {}
     for original_nii_name, nnunet_info in file_mapping.items():
         nnunet_base_name = Path(nnunet_info['new_filename']).stem.split('.')[0] 
@@ -130,9 +108,9 @@ def calculate_hu_stats(inference_path : Path, labelmap_output_path : Path, file_
     for labelmap_filename in os.listdir(labelmap_output_path):
         if labelmap_filename.endswith(".nii.gz") or labelmap_filename.endswith(".nii"):
             
-            labelmap_base_name = Path(labelmap_filename).stem.split('.')[0]
+            labelmap_base_name = Path(labelmap_filename).stem.split('.')[0] 
             
-            original_subject_filename = inverted_mapping.get(labelmap_base_name)
+            original_subject_filename = inverted_mapping.get(labelmap_base_name + NNUNET_CHANNEL_SUFFIX)
             if not original_subject_filename: continue
 
             new_file_info = file_mapping.get(original_subject_filename)
@@ -141,7 +119,7 @@ def calculate_hu_stats(inference_path : Path, labelmap_output_path : Path, file_
             nnunet_simple_name = Path(new_file_info['new_filename']).stem.split('.')[0]
             
             # Construct the HU filename by appending the channel suffix
-            hu_nii_filename = f"{nnunet_simple_name}{NNUNET_CHANNEL_SUFFIX}.nii.gz"
+            hu_nii_filename = f"{nnunet_simple_name}.nii.gz"
             
             hu_nii_path = Path(inference_path) / hu_nii_filename
             labelmap_path = Path(labelmap_output_path) / labelmap_filename
@@ -151,7 +129,7 @@ def calculate_hu_stats(inference_path : Path, labelmap_output_path : Path, file_
                 continue
             
             # Append task parameters
-            tasks_to_run.append((hu_nii_path, labelmap_path, original_subject_filename, labelmap_filename, hu_nii_filename, stl_metadata_map, id, labels_dict))
+            tasks_to_run.append((hu_nii_path, labelmap_path, original_subject_filename, labelmap_filename, hu_nii_filename, id, labels_dict))
 
     print(f"Prepared {len(tasks_to_run)} pairs for parallel HU statistics calculation.")
 
@@ -183,18 +161,15 @@ def calculate_hu_stats(inference_path : Path, labelmap_output_path : Path, file_
     column_order = [
         'Subject_File',  'Label_ID', 'Label_Name', 
         'Voxel_Count', 'Voxel_Volume_mm3', 
-        'Mesh_Volume_mm3', 'Mesh_Surface_Area_mm2', 
         'Mean_HU', 'StdDev_HU', 'Median_HU', 'Min_HU', 'Max_HU', 
         'Skewness', 'Kurtosis', 
         '25th_Percentile_HU', '75th_Percentile_HU', 
-     # <-- Final T-score column
+    
     ]
     df = df[column_order]
 
     df_formatted = df.round({
     'Voxel_Volume_mm3': 3,  # Example: 3 decimal places for volume
-    'Mesh_Volume_mm3': 4,
-    'Mesh_Surface_Area_mm2': 4, 
     'Mean_HU': 4,
     'StdDev_HU': 4,
     'Median_HU': 4,
@@ -213,9 +188,45 @@ def calculate_hu_stats(inference_path : Path, labelmap_output_path : Path, file_
     print(f"HU statistics saved to: {csv_path}")
 
     excel_path = Path(output_directory) / f"{output_filename}.xlsx"
-    df_formatted.to_excel(excel_path, index=False)
-    print(f"HU statistics saved to: {excel_path}")
 
+    
+    with pd.ExcelWriter(excel_path, engine='xlsxwriter') as writer:
+        df_formatted.to_excel(writer, sheet_name='Sheet1', index=False)
+
+      
+        workbook  = writer.book
+        worksheet = writer.sheets['Sheet1']
+
+        
+        header_format = workbook.add_format({
+            'bold': True,
+            'text_wrap': True,
+            'valign': 'top',
+            'fg_color':"#B7FFEF" , 
+            'border': 1
+        })
+
+        # Iterate through each column to find the max width
+        for i, column in enumerate(df_formatted.columns):
+            # Calculate width of column header
+            column_len = len(str(column))
+
+            # Calculate max width of data in that column
+            # (We use map(str) to handle non-string data)
+            max_data_len = df_formatted[column].map(str).map(len).max()
+
+            # Set the width to the larger of the two, plus a little padding
+            # If max_data_len is NaN (empty column), default to header length
+            if pd.isna(max_data_len):
+                max_data_len = 0
+                
+            adjusted_width = max(column_len, max_data_len) + 2
+            
+            # Apply the width and the header format
+            worksheet.set_column(i, i, adjusted_width)
+            worksheet.write(0, i, column, header_format)
+
+    print(f"HU statistics saved to: {excel_path}")
     return True
 
 if __name__ == "__main__":
@@ -238,4 +249,4 @@ if __name__ == "__main__":
         "4" : "Ribs"
     }}
     
-    calculate_hu_stats(inference_dir, labelmap_dir, example_file_mapping, output_dir, id="117", labels_dict=labels_dict, stl_metadata_path="C:\\Users\\schum\\Desktop\\zesbo\\label_ver\\stl_metadata.json" )
+    calculate_hu_stats(inference_dir, labelmap_dir, example_file_mapping, output_dir, id="117", labels_dict=labels_dict, stl_metadata_path=None)

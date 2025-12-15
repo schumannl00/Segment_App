@@ -27,13 +27,13 @@ from stl import mesh
 from multi_stl import process_directory_parallel
 import shutil
 from cutting import masking, zcut, cut_volume
-from multiprocessed import raw_data_to_nifti_parallel, nifti_renamer
+from DICOMtoNIFTI import raw_data_to_nifti_parallel, nifti_renamer
 from modifier import  stl_renamer_with_lut
 import ttkbootstrap as tb
 from ttkbootstrap.constants import *
 import logging
 from utils.logging_tool import gui_log_output, SuppressStdout, TerminalOnlyStdout
-
+from utils.analytics import calculate_hu_stats
 with open("ids.json", "r") as ids:
     id_dict = json.load(ids)
 with open("labels.json", "r") as labels:
@@ -319,6 +319,11 @@ class ParameterGUI:
         self.islands_var = tk.BooleanVar(value=True)
         self.islands_check = tb.Checkbutton(preprocessing_frame, text= "Remove all but the largest element from stl",  variable=self.islands_var)
         self.islands_check.grid(row=4, column=0, columnspan=6, sticky = tk.W, pady=(0,10))
+
+        self.analytics_var = tk.BooleanVar(value=False)
+        self.analytics_check = tb.Checkbutton(preprocessing_frame, text= "Run HU analytics",  variable=self.analytics_var)
+        self.analytics_check.grid(row=15, column=0, columnspan=6, sticky = tk.W, pady=(0,10))
+
 
         #Option for Loading NIFTIs
         config_input_frame = tb.LabelFrame(main_frame, text= "Input options", padding = "10", bootstyle= WARNING)
@@ -678,6 +683,7 @@ class ParameterGUI:
             meshrepair = params["use_meshrepair"]
             remove_islands = params["remove_islands"]
             nifti_input = params["nifti_input"]
+            analytics = params["run_analytics"]
             # Ensure output directories exist
             os.makedirs(stl_output_path, exist_ok=True)
             os.makedirs(labelmap_output_path, exist_ok=True)
@@ -871,10 +877,16 @@ class ParameterGUI:
             self.progress_queue.put(ProgressEvent(80, "Converting segmentations to STL..."))
             print("Starting with batched stl conversion.")
             # Get label files from the output directory
-            process_directory_parallel(labelmap_output_path, stl_output_path, segment_params=segment_params[selected_id], split=split, use_pymeshfix=meshrepair, remove_islands=remove_islands, max_workers=10)
+            stl_metadata_path = Path(input_path.parent) / "stl_metadata.json"
+            process_directory_parallel(labelmap_output_path, stl_output_path, segment_params=segment_params[selected_id], split=split, use_pymeshfix=meshrepair, remove_islands=remove_islands, max_workers=10, stl_metadata_path=stl_metadata_path)
             
             self.progress_queue.put(ProgressEvent(90, "STL names back to original names..."))
             stl_renamer_with_lut(stl_output_path=stl_output_path, file_mapping=file_mapping)
+            if analytics:
+                self.progress_queue.put(ProgressEvent(95, "Running HU analytics..."))
+                stats_dir = Path(input_path.parent) / "HU_Analytics"
+                os.makedirs(stats_dir, exist_ok=True)
+                calculate_hu_stats(inference_path, labelmap_output_path, file_mapping, stats_dir, id= selected_id, labels_dict= labels_dict)
             self.progress_queue.put(ProgressEvent(100, "Processing complete!", completed=True))
             
             return True
@@ -961,7 +973,8 @@ class ParameterGUI:
             'use_meshrepair': self.meshfix_var.get(),
             'remove_islands' : self.islands_var.get(), 
             'name_only' : self.just_name.get(),
-            "nifti_input" : self.input_nifti.get()
+            "nifti_input" : self.input_nifti.get(), 
+            "run_analytics": self.analytics_var.get()
         }
 
         # Show summary of parameters

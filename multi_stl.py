@@ -15,7 +15,7 @@ from pathlib import Path
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from functools import partial
 import multiprocessing as mp
-
+from utils.stl_metadata import calculate_volume_and_surface_area, save_metadata_to_json
 
 def smooth_mesh_pyvista(vertices, faces, method='taubin', n_iter=100, relaxation_factor=0.1):
     """Smooth a mesh using PyVista's smoothing algorithms."""
@@ -83,10 +83,10 @@ def process_single_file(file_info, segment_params, fill_holes=0, use_pymeshfix=T
     """
     input_file, output_dir, file_number = file_info
     file_name = os.path.basename(input_file)
-    
+    metadata_entries = []
     try:
+        simple_name = Path(file_name).stem.split('.')[0]
         print(f"[PID {os.getpid()}] Processing {file_name}")
-        
         nib.openers.Opener.default_compresslevel = 9
         nii_img = nib.load(input_file)
         nii_data = nii_img.get_fdata()
@@ -166,7 +166,11 @@ def process_single_file(file_info, segment_params, fill_holes=0, use_pymeshfix=T
                 verts = smooth_mesh_pyvista(verts, faces, method=mesh_method, 
                                           n_iter=100, relaxation_factor=0.1)
             
-            # Save STL
+            # Calculate volume and surface area
+            volume_mm3, surface_area_mm2 = calculate_volume_and_surface_area(verts, faces)
+            print(volume_mm3, surface_area_mm2)
+            simple_name_ = f"{simple_name}_{label}"
+            metadata_entries.append((simple_name_, {"Mesh_volume_mm3" : volume_mm3, "Surface_Area_mm2": surface_area_mm2}))
             stl_mesh = mesh.Mesh(np.zeros(faces.shape[0], dtype=mesh.Mesh.dtype))
             for i, face in enumerate(faces):
                 for j in range(3):
@@ -182,12 +186,12 @@ def process_single_file(file_info, segment_params, fill_holes=0, use_pymeshfix=T
             stl_mesh.save(output_file)
             print(f"[PID {os.getpid()}] Saved {output_file}")
         
-        return (file_name, True, None)
+        return (file_name, True, None, metadata_entries)
     
     except Exception as e:
         error_msg = f"Failed to process {file_name}: {str(e)}"
         print(f"[PID {os.getpid()}] {error_msg}")
-        return (file_name, False, error_msg)
+        return (file_name, False, error_msg, metadata_entries)
 
 
 def load_checkpoint(checkpoint_file):
@@ -204,28 +208,14 @@ def save_checkpoint(checkpoint_file, completed, failed):
         json.dump({"completed": completed, "failed": failed}, f, indent=2)
 
 
-def process_directory_parallel(input_dir, output_root_dir, segment_params, 
-                               fill_holes=0, split=False, use_pymeshfix=True, remove_islands=True, 
-                               max_workers=None, batch_size=50, resume=True):
-    """
-    Process directory with parallel execution at the file level, using batching.
+def process_directory_parallel(input_dir : str, output_root_dir : str , segment_params : dict, 
+                               fill_holes : int =0, split: bool=False, use_pymeshfix : bool =True, remove_islands : bool =True, 
+                               max_workers : int =None, batch_size : int =50, resume : bool =True, stl_metadata_path : str = None) -> list:
     
-    Parameters:
-    input_dir (str): Input directory containing .nii.gz files
-    output_root_dir (str): Root output directory for STL files
-    segment_params (dict): Segment processing parameters
-    fill_holes (int): Whether to fill holes
-    split (bool): Whether to split by side (links/rechts)
-    use_pymeshfix (bool): Whether to use pymeshfix
-    remove_islands (bool): argument for remove_smallest_components of pymeshfix.repair 
-    max_workers (int): Maximum number of parallel workers (default: CPU count)
-    batch_size (int): Number of files to process per batch (default: 50)
-    resume (bool): Whether to resume from checkpoint (default: True)
-    """
     os.makedirs(output_root_dir, exist_ok=True)
     p = Path(output_root_dir)
     checkpoint_file = os.path.join(p.parent, ".stl_processing_checkpoint.json")
-    
+
     
     # Load checkpoint
     checkpoint = load_checkpoint(checkpoint_file) if resume else {"completed": [], "failed": []}
@@ -281,7 +271,8 @@ def process_directory_parallel(input_dir, output_root_dir, segment_params,
     # Process in batches
     all_results = []
     num_batches = (total_files + batch_size - 1) // batch_size
-    
+    stl_metadata = {}
+
     for batch_idx in range(num_batches):
         start_idx = batch_idx * batch_size
         end_idx = min(start_idx + batch_size, total_files)
@@ -303,16 +294,18 @@ def process_directory_parallel(input_dir, output_root_dir, segment_params,
                 try:
                     result = future.result()
                     batch_results.append(result)
-                    file_name, success, error = result
+                    file_name, success, error, metadata_entires = result
                     if success:
                         print(f"✓ Completed: {file_name}")
                         completed_files.add(file_name)
+                        for name, meta in metadata_entires:
+                            stl_metadata[name] = meta
                     else:
                         print(f"✗ Failed: {file_name} - {error}")
                         all_failed.append({"file": file_name, "error": error})
                 except Exception as e:
                     print(f"✗ Exception for {os.path.basename(task[0])}: {str(e)}")
-                    batch_results.append((os.path.basename(task[0]), False, str(e)))
+                    batch_results.append((os.path.basename(task[0]), False, str(e), []))
                     all_failed.append({"file": os.path.basename(task[0]), "error": str(e)})
         
         all_results.extend(batch_results)
@@ -321,12 +314,12 @@ def process_directory_parallel(input_dir, output_root_dir, segment_params,
         save_checkpoint(checkpoint_file, list(completed_files), all_failed)
         
         # Batch summary
-        batch_success = sum(1 for _, success, _ in batch_results if success)
+        batch_success = sum(1 for entry in batch_results if entry[1])
         print(f"\nBatch {batch_idx + 1} complete: {batch_success}/{len(batch_results)} succeeded")
         print(f"Overall progress: {len(completed_files)}/{total_files} total files")
     
     # Final summary
-    successful = sum(1 for _, success, _ in all_results if success)
+    successful = sum(1 for entry in  all_results if entry[1])
     failed = len(all_results) - successful
     print(f"\n{'='*60}")
     print(f"FINAL SUMMARY")
@@ -339,6 +332,10 @@ def process_directory_parallel(input_dir, output_root_dir, segment_params,
     if all_failed:
         print(f"\nFailed files saved to: {checkpoint_file}")
     
+    if stl_metadata_path:
+        save_metadata_to_json(stl_metadata, stl_metadata_path)
+        print(f"STL metadata saved to: {stl_metadata_path}")
+
     return all_results
 
 
