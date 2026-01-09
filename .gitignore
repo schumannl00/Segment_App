@@ -6,3 +6,4 @@ transform_DICOM_to_nifti.py
 .venv/
 nii_to_stl_final.py
 train_all_folds.ps1
+segmentation_report.html
