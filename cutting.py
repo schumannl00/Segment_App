@@ -141,3 +141,5 @@ def masking(nii_path):
 
 
 
+if __name__ == "__main__":
+    cut_volume(r"\\wsl.localhost\Ubuntu\home\schumannl\datasets\rib_prep\nii\Sco_056_0000.nii.gz", lower=(60, None, 370), upper=(470, None, 890), keep_original=True, destination_dir=r"\\wsl.localhost\Ubuntu\home\schumannl\datasets\rib_prep\nii\cut_test")

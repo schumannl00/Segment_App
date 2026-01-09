@@ -18,6 +18,9 @@ from nnunetv2.paths import nnUNet_results, nnUNet_raw
 import torch
 from batchgenerators.utilities.file_and_folder_operations import join
 from nnunetv2.inference.predict_from_raw_data import nnUNetPredictor
+from nnunetv2.training.nnUNetTrainer.variants.network_architecture.nnUNetTrainerLoRA import create_lora_predictor
+
+
 import nibabel as nib
 from nibabel import load, Nifti1Image, save 
 from skimage import measure
@@ -794,14 +797,17 @@ class ParameterGUI:
                 verbose_preprocessing=False,
                 allow_tqdm=True
             )
-            
-            if selected_id == 117 or selected_id == "117":
+            if selected_id == "118": 
+                predictor = create_lora_predictor(predictor)
+                print("Using LoRA model for segmentation.")
+
+            if selected_id in (117,"117", 118, "118"):
                 lowres_path = Path(input_path.parent) / 'label_lowres'
-                os.makedirs(Path(input_path.parent) / 'label_lowres')
+                os.makedirs(Path(input_path.parent) / 'label_lowres', exist_ok=True)
                 print(f"Running cascade segemntation for ID {selected_id}" )
                 predictor.initialize_from_trained_model_folder(
                 join(nnUNet_results, id_dict[selected_id]['Path_to_results']['3d_lowres']),
-                use_folds=folds,
+                use_folds=(0,1,2,3,4),
                 checkpoint_name="checkpoint_final.pth",
             )
                 
@@ -809,20 +815,20 @@ class ParameterGUI:
             
                 self.progress_queue.put(ProgressEvent(60, "Running segmentation for lowres..."))
                 print("Starting nnU-Net prediction. Status updates will be suppressed from the log.")
-                with TerminalOnlyStdout():
-                    predictor.predict_from_files(
-                        str(inference_path), 
-                        str(lowres_path),
-                        save_probabilities=False,
-                        overwrite=False,
-                        num_processes_preprocessing=4,
-                        num_processes_segmentation_export=4,
-                        folder_with_segs_from_prev_stage=None, num_parts=1, part_id=0)
+                #with TerminalOnlyStdout():
+                predictor.predict_from_files(
+                    str(inference_path), 
+                    str(lowres_path),
+                    save_probabilities=False,
+                    overwrite=False,
+                    num_processes_preprocessing=4,
+                    num_processes_segmentation_export=4,
+                    folder_with_segs_from_prev_stage=None, num_parts=1, part_id=0)
                 print("Done with lowres")
 
                 predictor.initialize_from_trained_model_folder(
                 join(nnUNet_results, id_dict[selected_id]['Path_to_results']['3d_cascade_fullres']),
-                use_folds=(0,),
+                use_folds=(0,1),
                 checkpoint_name="checkpoint_final.pth",
             )
                 
