@@ -169,7 +169,7 @@ def process_single_file(file_info, segment_params, fill_holes=0, use_pymeshfix=T
             # Calculate volume and surface area
             volume_mm3, surface_area_mm2 = calculate_volume_and_surface_area(verts, faces)
             print(volume_mm3, surface_area_mm2)
-            simple_name_ = f"{simple_name}_{label}"
+            simple_name_ = f"{simple_name}_{output_label}"
             metadata_entries.append((simple_name_, {"Mesh_volume_mm3" : volume_mm3, "Surface_Area_mm2": surface_area_mm2}))
             stl_mesh = mesh.Mesh(np.zeros(faces.shape[0], dtype=mesh.Mesh.dtype))
             for i, face in enumerate(faces):

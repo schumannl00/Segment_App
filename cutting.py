@@ -91,7 +91,7 @@ def sep(nii_path : str, x_cut : int,  destination_dir : str ):
 
     return left_file, right_file
 
-#might just be replaced with cut where x,y None for all
+#depreceated function, use cut_volume instead
 def zcut(nii_path : str, lower : int, upper : int , keep_original: bool, backup_dir : str ) -> None :
     nii = load(nii_path)
     suffix = "cut"

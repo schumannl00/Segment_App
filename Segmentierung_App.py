@@ -1,3 +1,5 @@
+import multiprocessing as mp
+mp.set_start_method("spawn", force=True)
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox, simpledialog
 from tkinterdnd2 import DND_FILES, TkinterDnD
@@ -19,8 +21,8 @@ import torch
 from batchgenerators.utilities.file_and_folder_operations import join
 from nnunetv2.inference.predict_from_raw_data import nnUNetPredictor
 from nnunetv2.training.nnUNetTrainer.variants.network_architecture.nnUNetTrainerLoRA import create_lora_predictor
-
-
+import subprocess
+from utils.json_renamer import rename_keys
 import nibabel as nib
 from nibabel import load, Nifti1Image, save 
 from skimage import measure
@@ -801,7 +803,7 @@ class ParameterGUI:
                 predictor = create_lora_predictor(predictor)
                 print("Using LoRA model for segmentation.")
 
-            if selected_id in (117,"117", 118, "118"):
+            if selected_id in ("117", "118"):
                 lowres_path = Path(input_path.parent) / 'label_lowres'
                 os.makedirs(Path(input_path.parent) / 'label_lowres', exist_ok=True)
                 print(f"Running cascade segemntation for ID {selected_id}" )
@@ -826,12 +828,17 @@ class ParameterGUI:
                     folder_with_segs_from_prev_stage=None, num_parts=1, part_id=0)
                 print("Done with lowres")
 
-                predictor.initialize_from_trained_model_folder(
-                join(nnUNet_results, id_dict[selected_id]['Path_to_results']['3d_cascade_fullres']),
-                use_folds=(0,1),
-                checkpoint_name="checkpoint_final.pth",
-            )
-                
+                if selected_id == "118":
+                    predictor.initialize_from_trained_model_folder(
+                    join(nnUNet_results, id_dict[selected_id]['Path_to_results']['3d_cascade_fullres']),
+                    use_folds=(0,1,2,3),
+                    checkpoint_name="checkpoint_final.pth",)
+                else: 
+                     predictor.initialize_from_trained_model_folder(
+                    join(nnUNet_results, id_dict[selected_id]['Path_to_results']['3d_cascade_fullres']),
+                    use_folds=(0,),
+                    checkpoint_name="checkpoint_final.pth",)
+    
                 # Run prediction on the input data
             
                 self.progress_queue.put(ProgressEvent(60, "Running segmentation for fullres cascade..."))
@@ -887,12 +894,20 @@ class ParameterGUI:
             process_directory_parallel(labelmap_output_path, stl_output_path, segment_params=segment_params[selected_id], split=split, use_pymeshfix=meshrepair, remove_islands=remove_islands, max_workers=10, stl_metadata_path=stl_metadata_path)
             
             self.progress_queue.put(ProgressEvent(90, "STL names back to original names..."))
-            stl_renamer_with_lut(stl_output_path=stl_output_path, file_mapping=file_mapping)
+            reverse_mapping_number = stl_renamer_with_lut(stl_output_path=stl_output_path, file_mapping=file_mapping)
+            stl_metadata_path = rename_keys(stl_metadata_path, stl_metadata_path, reverse_mapping_number)
+            cleaned_metapath = str(Path(stl_metadata_path).resolve())
             if analytics:
                 self.progress_queue.put(ProgressEvent(95, "Running HU analytics..."))
                 stats_dir = Path(input_path.parent) / "HU_Analytics"
-                os.makedirs(stats_dir, exist_ok=True)
-                calculate_hu_stats(inference_path, labelmap_output_path, file_mapping, stats_dir, id= selected_id, labels_dict= labels_dict)
+                calculate_hu_stats(inference_path, labelmap_output_path, file_mapping, stats_dir, id= selected_id, labels_dict= labels_dict, number_to_name_dict= reverse_mapping_number, stl_metadata_path=cleaned_metapath)
+
+            
+            
+            python_exe = sys.executable
+            cmd = [python_exe, "-m", "streamlit", "run", "utils/streamlit_dbscan.py", "--",  cleaned_metapath] 
+            subprocess.run(cmd)
+            
             self.progress_queue.put(ProgressEvent(100, "Processing complete!", completed=True))
             
             return True

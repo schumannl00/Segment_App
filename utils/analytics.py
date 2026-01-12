@@ -72,10 +72,9 @@ def process_single_hu_mask_pair(hu_nii_path : Path , labelmap_path: Path , origi
                 'Max_HU': np.max(roi_hu_values),
                 'Skewness': skewness,
                 'Kurtosis': kurtosis,
-                '25th_Percentile_HU': np.percentile(roi_hu_values, 25),
-                '75th_Percentile_HU': np.percentile(roi_hu_values, 75), } 
+                '5th_Percentile_HU': np.percentile(roi_hu_values, 5),
+                '95th_Percentile_HU': np.percentile(roi_hu_values, 95), } 
                 
-            
             results_list.append(stats_entry)
             
     except Exception as e:
@@ -86,19 +85,18 @@ def process_single_hu_mask_pair(hu_nii_path : Path , labelmap_path: Path , origi
     return results_list
 
 # The main function using concurrent futures
-def calculate_hu_stats(inference_path : Path, labelmap_output_path : Path, file_mapping : dict, output_directory : Path , max_workers :int =12, id : str = None, labels_dict : dict =None):
+def calculate_hu_stats(inference_path : Path, labelmap_output_path : Path, file_mapping : dict, output_directory : Path , max_workers :int =12, id : str = None, labels_dict : dict =None, stl_metadata_path : Path = None, number_to_name_dict : dict = None) -> bool :
 
-    
+    os.makedirs(output_directory, exist_ok=True)    
 
     NNUNET_CHANNEL_SUFFIX = "_0000"
  
 
-   
+    num_to_og_map = {info['number']: og_name for og_name, info in file_mapping.items()}
+
+    tasks_to_run = []
     # Create inverted mapping: nnUNet_Base_Name (e.g., 'Leg_001_0000') -> Original_Nii_Filename (e.g., 'PID_PNAME_...')
-    inverted_mapping = {}
-    for original_nii_name, nnunet_info in file_mapping.items():
-        nnunet_base_name = Path(nnunet_info['new_filename']).stem.split('.')[0] 
-        inverted_mapping[nnunet_base_name] = original_nii_name
+    inverted_mapping = {Path(info['new_filename']).name.split('.')[0]: og_name for og_name, info in file_mapping.items()}
     
     # -------------------------------
     
@@ -127,6 +125,14 @@ def calculate_hu_stats(inference_path : Path, labelmap_output_path : Path, file_
             if not hu_nii_path.exists(): 
                 print(f"Warning: Missing HU file {hu_nii_filename} for mask {labelmap_filename}. Skipping.")
                 continue
+            try:
+                file_num = Path(labelmap_filename).stem.split('.')[0].split('_')[-1]
+                print(file_num)
+            except IndexError:
+                continue
+
+            original_subject_filename = num_to_og_map.get(file_num).split('.')[0]
+
             
             # Append task parameters
             tasks_to_run.append((hu_nii_path, labelmap_path, original_subject_filename, labelmap_filename, hu_nii_filename, id, labels_dict))
@@ -163,20 +169,58 @@ def calculate_hu_stats(inference_path : Path, labelmap_output_path : Path, file_
         'Voxel_Count', 'Voxel_Volume_mm3', 
         'Mean_HU', 'StdDev_HU', 'Median_HU', 'Min_HU', 'Max_HU', 
         'Skewness', 'Kurtosis', 
-        '25th_Percentile_HU', '75th_Percentile_HU', 
-    
+        '5th_Percentile_HU', '95th_Percentile_HU', 
+
     ]
     df = df[column_order]
 
-    df_formatted = df.round({
+    # Assuming stl_metadata_path is passed to the function
+    if stl_metadata_path and Path(stl_metadata_path).exists():
+        with open(stl_metadata_path, 'r') as f:
+            stl_data = json.load(f)
+
+    # 1. Process JSON into a list for easy DataFrame creation
+    stl_records = []
+    for entry_name, metrics in stl_data.items():
+        # entry_name is likely "Scan_01_L1"
+        parts = entry_name.split('_')
+        label_name = parts[-1]               
+        subject_name = "_".join(parts[:-1])  
+
+
+        stl_records.append({
+            'Subject_File': subject_name,
+            'Label_Name': label_name,
+            'Mesh_Volume_mm3': metrics.get('Mesh_volume_mm3'),
+            'Surface_Area_mm2': metrics.get('Surface_Area_mm2')
+        })
+
+    stl_df = pd.DataFrame(stl_records)
+
+    
+    # We use 'left' join to keep all HU rows even if STL data is missing
+    df = pd.merge(df, stl_df, on=['Subject_File', 'Label_Name'], how='left')
+
+    s
+    insertion_index = column_order.index('Voxel_Volume_mm3') + 1
+
+
+    new_columns = ['Mesh_Volume_mm3', 'Surface_Area_mm2']
+    column_order = column_order[:insertion_index] + new_columns + column_order[insertion_index:]
+
+    df = df[column_order]
+
+
+    df_formatted = df.round({'Mesh_Volume_mm3': 3,  # Example: 3 decimal places for volume
+    'Surface_Area_mm2': 3,
     'Voxel_Volume_mm3': 3,  # Example: 3 decimal places for volume
     'Mean_HU': 4,
     'StdDev_HU': 4,
     'Median_HU': 4,
     'Skewness': 4,
     'Kurtosis': 4,
-    '25th_Percentile_HU': 4,
-    '75th_Percentile_HU': 4,
+    '5th_Percentile_HU': 4,
+    '95th_Percentile_HU': 4,
     })
     
     output_filename = f"HU_Statistics_Report_{pd.Timestamp.now().strftime('%Y%m%d_%H%M%S')}"
@@ -202,7 +246,7 @@ def calculate_hu_stats(inference_path : Path, labelmap_output_path : Path, file_
             'bold': True,
             'text_wrap': True,
             'valign': 'top',
-            'fg_color':"#B7FFEF" , 
+            'fg_color':"#9BAEE4" , 
             'border': 1
         })
 
