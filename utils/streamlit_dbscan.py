@@ -47,14 +47,27 @@ except Exception as e:
     st.info("Usage: streamlit run script.py -- \"path/to/data.json\"")
     st.stop()
 
-# 2. SIDEBAR CONTROLS
-st.sidebar.header("Clustering Settings")
-eps = st.sidebar.slider("Epsilon (Strictness)", 0.001, 0.3, 0.07, step=0.001, help="Lower = stricter", format="%.3f") 
-min_samples = st.sidebar.number_input("Min Cluster Size", value=10)
+N_POINTS = len(df)
+default_min_samples = max(3, int(N_POINTS * 0.05))
 
-# 3. PROCESSING
+
+
+
+#  PROCESSING
 scaler = StandardScaler()
 X_scaled = scaler.fit_transform(df[['volume', 'surface_area']])
+avg_std = np.mean(np.std(X_scaled, axis=0))
+base_eps = (avg_std * 0.05) * (1 + (20 / (N_POINTS + 1)))  #this adjust based on size but the parameters are heuristic might need tweaking depending on how your distributions look like usually 
+default_eps = min(max(base_eps, 0.01), 0.3)
+default_min_samples = max(3, int(N_POINTS * 0.03))
+
+# SIDEBAR CONTROLS
+st.sidebar.header("Clustering Settings")
+
+
+eps = st.sidebar.slider("Epsilon (Strictness)", 0.001, 0.3, float(default_eps), step=0.001, help="Lower = stricter", format="%.3f") 
+min_samples = st.sidebar.number_input("Min Cluster Size", value=default_min_samples)
+
 db = DBSCAN(eps=eps, min_samples=min_samples).fit(X_scaled)
 
 df['status'] = ['Outlier' if l == -1 else f'Cluster {l}' for l in db.labels_]
