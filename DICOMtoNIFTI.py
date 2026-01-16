@@ -9,8 +9,9 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 import time # For potential timing/debugging
 from dicom2nifti import settings
 from pydicom.errors import InvalidDicomError
-import json
 import numpy as np
+import nibabel as nib
+from nibabel.orientations import io_orientation, axcodes2ornt, ornt_transform
 
 settings. disable_validate_slice_increment()
 #rewrote  so no splitting needed anymore, any spaces are replaced by - already 
@@ -152,7 +153,17 @@ def convert_single_series_to_nifti(input_dir_path, output_nifti_path):
         print(f"Attempting conversion: {input_dir_path} -> {output_nifti_path}")
         
         Path(output_nifti_path).parent.mkdir(exist_ok=True)
-        dicom2nifti.dicom_series_to_nifti(str(input_dir_path), str(output_nifti_path), reorient_nifti=True) 
+        dicom2nifti.dicom_series_to_nifti(str(input_dir_path), str(output_nifti_path), reorient_nifti=True )
+
+        nii = nib.load(str(output_nifti_path)) 
+        orig_orient = io_orientation(nii.affine)
+        target_orient = axcodes2ornt(('R', 'A', 'S'))
+        if not np.array_equal(orig_orient, target_orient):
+            transform = ornt_transform(orig_orient, target_orient)
+            nii_ras = nii.as_reoriented(transform)
+            nib.save(nii_ras, str(output_nifti_path))
+            print(f"Reoriented NIFTI to RAS for: {output_nifti_path.name}")
+
         print(f"Successfully converted: {output_nifti_path.name}")
         return (str(input_dir_path), True, str(output_nifti_path)) 
     except Exception as e:

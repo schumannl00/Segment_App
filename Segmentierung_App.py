@@ -4,6 +4,7 @@ import tkinter as tk
 from tkinter import ttk, filedialog, messagebox, simpledialog
 from tkinterdnd2 import DND_FILES, TkinterDnD
 from ttkbootstrap.scrolled import ScrolledFrame
+from ttkbootstrap.tooltip import ToolTip
 import os
 import re
 import sys
@@ -92,7 +93,7 @@ class ParameterGUI:
         main_frame.columnconfigure(1, weight=1)
 
         path_frame= tb.LabelFrame(main_frame, text="Input/Output paths", padding = "10 ", bootstyle= INFO)
-        path_frame.grid(row=0, column=0, columnspan=6, sticky = EW, pady=(0,10))
+        path_frame.grid(row=0, column=0, columnspan=5, sticky = EW, pady=(0,10))
         path_frame.columnconfigure(1, weight=1)
       
       
@@ -137,7 +138,7 @@ class ParameterGUI:
 
         # Row 3: Scan Indicators (as set of strings)
         indicator_frame = tb.LabelFrame(main_frame, text= "Filter out specific scan", padding = "10", bootstyle= WARNING)
-        indicator_frame.grid(row=2, column=0, columnspan=6, sticky=EW, pady=(0,10))
+        indicator_frame.grid(row=2, column=0, columnspan=5, sticky=EW, pady=(0,10))
         indicator_frame.columnconfigure(0, weight=1)
 
 
@@ -155,7 +156,7 @@ class ParameterGUI:
         indicator_controls_frame.columnconfigure(0, weight=1) 
         indicator_controls_frame.columnconfigure(3, weight=1)
 
-        self.indicators_menu = ttk.Menubutton(indicator_controls_frame, text="Select Indicators", width=60)
+        self.indicators_menu = ttk.Menubutton(indicator_controls_frame, text="Select Indicators", width=60, direction='flush')
         self.indicators_menu.grid(row=0, column=0, sticky=EW, padx=(0, 5))
        
         self.dropdown_menu = tk.Menu(self.indicators_menu, tearoff=0)
@@ -166,11 +167,12 @@ class ParameterGUI:
             indicator_controls_frame, 
             text="+", 
             width=3, 
-            command=self.add_custom_indicator, bootstyle= "info")
+            command=self.add_custom_indicator, bootstyle= "info", )
+        
         
         self.add_custom_button.grid(row=0, column=1, padx=(5, 5))
 
-        tb.Label(indicator_controls_frame, text="Group:").grid(row=0, column=2, padx=(10, 2), sticky=E)
+        tb.Label(indicator_controls_frame, text="Group:").grid(row=0, column=2, padx=(10, 2), sticky=W)
         self.group_filter_var = tk.StringVar()
         self.group_filter_entry = tb.Entry(indicator_controls_frame, textvariable=self.group_filter_var, width=20)
         self.group_filter_entry.grid(row=0, column=3, sticky=EW, padx=(0, 5))
@@ -183,9 +185,9 @@ class ParameterGUI:
             indicator_controls_frame, 
             text="Don't filter", 
             variable=self.use_default_indicators,
-            command=self.toggle_indicators_entry, bootstyle= "danger"
+            command=self.toggle_indicators_entry, bootstyle= "warning", 
         )
-        self.default_indicators_check.grid(row=0, column=4, padx=(10, 10))
+        self.default_indicators_check.grid(row=0, column=4, padx=(10, 10), sticky=W)
 
        
         
@@ -242,7 +244,7 @@ class ParameterGUI:
        #Processing
     
         preprocessing_frame = tb.LabelFrame(main_frame, text="Processing Options", padding = "10", bootstyle= INFO)
-        preprocessing_frame.grid(row=3, column=1, columnspan=4, sticky=EW, pady=(0, 5), padx=5) # Use grid in main_frame
+        preprocessing_frame.grid(row=3, column=1, columnspan=3, sticky=EW, pady=(0, 5), padx=5) # Use grid in main_frame
         preprocessing_frame.columnconfigure(1, weight=1)
 
 
@@ -250,13 +252,13 @@ class ParameterGUI:
 
         self.split_nifti_var = tk.BooleanVar(value=False)
         self.split_nifti_check = tb.Checkbutton(preprocessing_frame, text="Split NIFTIs into left and right along x axis", variable=self.split_nifti_var)
-        self.split_nifti_check.grid(row=0, column=0, columnspan=4,   sticky=tk.W, pady= (0,10) )
+        self.split_nifti_check.grid(row=0, column=0, columnspan=3,   sticky=tk.W, pady= (0,10) )
 
 
         self.enable_cut = tk.BooleanVar(value=False)
         self.keep_originals = tk.BooleanVar(value=False)
-
-        
+        self.use_percent = tk.BooleanVar(value=False)
+        self.used_lps = tk.BooleanVar(value=False)
         self.lower_x = tk.StringVar(value="")
         self.upper_x = tk.StringVar(value="")
         self.lower_y = tk.StringVar(value="")
@@ -264,7 +266,6 @@ class ParameterGUI:
         self.lower_z = tk.StringVar(value="")
         self.upper_z = tk.StringVar(value="")
 
-       
         self.cut_entries = []
 
 
@@ -275,19 +276,50 @@ class ParameterGUI:
             command=self.toggle_cut_inputs
         )
         enable_checkbox.grid(row=5, column=0, sticky="w", pady=5)
-
+        
+        help_text = (
+            "Cropping Guide for (RAS+ System):\n"
+            "• X: Lower = Left, Upper = Right\n"
+            "• Y: Lower = Back, Upper = Front\n"
+            "• Z: Lower = Feet, Upper = Head\n"
+            "This is different from the DICOMS which are LPS. Click the button for LPS.\n"
+            "Then add bounds as seen in the Viewer, here the right patient side (left of image) will have the lower values. \n"
+            "The script handles the conversion to RAS+ for cutting. \n"
+            "So be aware of what system you used and what you cut by doing so.\n"
+            "If using %, 0 is start of image, 100 is end."
+        )
+        ToolTip(enable_checkbox, text=help_text, delay=200, bootstyle="info", position= "top" )
         self.keep_originals_checkbox = tb.Checkbutton(
             preprocessing_frame, 
             text="Keep originals", 
             variable=self.keep_originals, 
             state="disabled"
         )
-        self.keep_originals_checkbox.grid(row=5, column=1, columnspan=1, sticky="w", pady=5, padx=(10,10))
+        self.keep_originals_checkbox.grid(row=6, column=0, columnspan=1, sticky="w", pady=0, padx=(40,10))
+
+        self.percent_checkbox = tb.Checkbutton(
+            preprocessing_frame, 
+            text="Use Percentages", 
+            variable=self.use_percent, 
+            state="disabled" 
+            
+        )
+        self.percent_checkbox.grid(row=7, column=0, columnspan=1, sticky="w", pady=0, padx=(40,10))
+
+        self.LPS_checkbox = tb.Checkbutton(
+            preprocessing_frame, 
+            text="Use LPS Coordinates to cut.", 
+            variable=self.used_lps, 
+            state="disabled" 
+            
+        )
+        self.LPS_checkbox.grid(row=8, column=0, columnspan=1, sticky="w", pady=0, padx=(40,10))
+        ToolTip(self.LPS_checkbox, text="If you used e.g. MicroDicom to check the images. They are in LPS so X and Y are flipped for our case. It handles the conversion. Ignore the other help statement as now X and Y are flipped.", delay=200, bootstyle="info", position="bottom")
 
         # --- Column Headers (Row 1) ---
         # Visual helper to tell user which column is which
-        ttk.Label(preprocessing_frame, text="Lower Bound").grid(row=5, column=1, padx=5, pady=2)
-        ttk.Label(preprocessing_frame, text="Upper Bound").grid(row=5, column=2, padx=5, pady=2)
+        ttk.Label(preprocessing_frame, text="Lower Bound").grid(row=5, column=1, padx=5, pady=2, sticky="w")
+        ttk.Label(preprocessing_frame, text="Upper Bound").grid(row=5, column=1, padx=15, pady=2, )
 
         # --- Axis Rows (Rows 2, 3, 4) ---
         axes_settings = [
@@ -298,36 +330,36 @@ class ParameterGUI:
 
         for label_text, low_var, up_var, row_idx in axes_settings:
             # Axis Label
-            ttk.Label(preprocessing_frame, text=label_text).grid(row=row_idx+5, column=0, sticky="e", padx=5, pady=2)
+            ttk.Label(preprocessing_frame, text=label_text).grid(row=row_idx+4, column=0, sticky="e", padx=(250,10), pady=2)
             
             # Lower Entry
             entry_l = tb.Entry(preprocessing_frame, textvariable=low_var, width=10, state="disabled")
-            entry_l.grid(row=row_idx+5, column=1, padx=5, pady=2)
+            entry_l.grid(row=row_idx+4, column=1, padx=5, pady=2, sticky="w")
             self.cut_entries.append(entry_l)
             
             # Upper Entry
             entry_u = tb.Entry(preprocessing_frame, textvariable=up_var, width=10, state="disabled")
-            entry_u.grid(row=row_idx+5, column=2, padx=5, pady=2)
+            entry_u.grid(row=row_idx+4, column=1, padx=5, pady=2)
             self.cut_entries.append(entry_u)
 
    
         self.just_name = tk.BooleanVar(value=True)
         self.just_name_check =tb.Checkbutton(preprocessing_frame, text="Just use the name for the folders/names, safe if IDs are messy with timescodes etc.", variable=self.just_name)
-        self.just_name_check.grid(row=2, column=0, columnspan=6, sticky=tk.W, pady=(0, 10))
+        self.just_name_check.grid(row=2, column=0, columnspan=1, sticky=tk.W, pady=(0, 10))
 
  
         self.meshfix_var = tk.BooleanVar(value=True)
         self.meshfix_check = tb.Checkbutton(preprocessing_frame, text= "Appply Pymesh meshrepair (caps open stls as well)",  variable=self.meshfix_var, command=self.on_meshfix_toggle)
-        self.meshfix_check.grid(row=3, column=0, columnspan=6, sticky = tk.W, pady=(0,10))
+        self.meshfix_check.grid(row=3, column=0, columnspan=1, sticky = tk.W, pady=(0,10))
 
     
         self.islands_var = tk.BooleanVar(value=True)
         self.islands_check = tb.Checkbutton(preprocessing_frame, text= "Remove all but the largest element from stl",  variable=self.islands_var)
-        self.islands_check.grid(row=4, column=0, columnspan=6, sticky = tk.W, pady=(0,10))
+        self.islands_check.grid(row=4, column=0, columnspan=1, sticky = tk.W, pady=(0,10))
 
         self.analytics_var = tk.BooleanVar(value=False)
         self.analytics_check = tb.Checkbutton(preprocessing_frame, text= "Run HU analytics",  variable=self.analytics_var)
-        self.analytics_check.grid(row=15, column=0, columnspan=6, sticky = tk.W, pady=(0,10))
+        self.analytics_check.grid(row=15, column=0, columnspan=1, sticky = tk.W, pady=(0,10))
 
 
         #Option for Loading NIFTIs
@@ -337,7 +369,7 @@ class ParameterGUI:
 
         self.input_nifti = tk.BooleanVar(value=False)
         self.input_nifti_check = tb.Checkbutton(config_input_frame, text= "NIFTIs are used as input, disables conversion. Click Keep originals for cropping otherwise it is destructive.",  variable=self.input_nifti)
-        self.input_nifti_check.grid(row=0, column=0, columnspan=6, sticky = tk.W, pady=(0,10))
+        self.input_nifti_check.grid(row=0, column=0, columnspan=5, sticky = tk.W, pady=(0,10))
 
         # Button frame at the bottom
         button_frame = ttk.Frame(main_frame)
@@ -476,7 +508,8 @@ class ParameterGUI:
         
         # Toggle the 'Keep Originals' checkbox
         self.keep_originals_checkbox.configure(state=state)
-        
+        self.percent_checkbox.configure(state=state)
+        self.LPS_checkbox.configure(state=state)
         # Toggle all Entry widgets
         for entry in self.cut_entries:
             entry.configure(state=state)
@@ -685,10 +718,12 @@ class ParameterGUI:
             just_name = params['name_only']
             cut_enabled = params['cut_enabled']
             keep_originals = params["keep_originals"]
+            use_percent = params["use_percent"]
             meshrepair = params["use_meshrepair"]
             remove_islands = params["remove_islands"]
             nifti_input = params["nifti_input"]
             analytics = params["run_analytics"]
+            used_lps = "LPS" if params["used_lps"] else "RAS"
             # Ensure output directories exist
             os.makedirs(stl_output_path, exist_ok=True)
             os.makedirs(labelmap_output_path, exist_ok=True)
@@ -751,7 +786,7 @@ class ParameterGUI:
                                     upper=upper_bounds,
                                     keep_original=keep_originals, 
                                     destination_dir=cut_path,
-                                    localiser="cut"
+                                    localiser="cut", percents_given=use_percent, input_type=used_lps
                                 )
                         else: 
                                 cut_volume(
@@ -760,7 +795,7 @@ class ParameterGUI:
                                     upper=upper_bounds,
                                     keep_original=keep_originals, 
                                     destination_dir=inference_path,
-                                    localiser="cut"
+                                    localiser="cut", percents_given=use_percent, input_type=used_lps
                                 )
                     if keep_originals: 
                         inference_path = cut_path
@@ -991,6 +1026,8 @@ class ParameterGUI:
             'lower_z': self.lower_z.get(),
             'upper_z': self.upper_z.get(),
             'keep_originals': self.keep_originals.get(),
+            'use_percent': self.use_percent.get(), 
+            "used_lps": self.used_lps.get(),
             'use_meshrepair': self.meshfix_var.get(),
             'remove_islands' : self.islands_var.get(), 
             'name_only' : self.just_name.get(),

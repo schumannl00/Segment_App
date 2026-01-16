@@ -63,7 +63,7 @@ def fill_holes_3d(segmentation):
 
 def convert_to_LPS(vertices):
     """Convert vertices to LPS coordinate system."""
-    vertices[:, 1] = -vertices[:, 1]
+    vertices[:, 1] *= -1.0
     vertices[:, 0] *= -1.0
     return vertices
 
@@ -92,7 +92,8 @@ def process_single_file(file_info, segment_params, fill_holes=0, use_pymeshfix=T
         nii_data = nii_img.get_fdata()
         spacing = nii_img.header.get_zooms()
         affine = nii_img.affine
-        
+        orientation = nib.orientations.io_orientation(affine)
+        print(" Image orientation:", orientation)
         for label, params in segment_params.items():
             volume_smoothing = params.get('smoothing', 0.1)
             output_label = params.get('label', f"segment_{label}")
