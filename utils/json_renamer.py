@@ -1,9 +1,9 @@
 import json
+from typing import List, Union 
+from pathlib import Path 
+PathLike = Union[str, Path]
 
-
-
-
-def rename_keys(original_json, output_json, mapping_dict):
+def rename_keys(original_json : PathLike, output_json: PathLike, mapping_dict : dict):
     try:
        
         with open(original_json, 'r') as f:
@@ -17,10 +17,14 @@ def rename_keys(original_json, output_json, mapping_dict):
             
             if len(parts) >= 2:
                 prefix = parts[0]   # XXX
-                number = parts[1]   # number
+                number = parts[1] 
+                cleaned_number , side  = number.split("-") if "-" in number else (number, "")
+                print(cleaned_number)
+                final_side = "_" + side.upper() 
                 suffix = "_".join(parts[2:]) if len(parts) > 2 else ""
-                new_name = mapping_dict.get(number, number).replace('.nii.gz', '')
-                cleaned_new_name = new_name.split('.')[0]
+                new_name = mapping_dict.get(cleaned_number, cleaned_number).replace('.nii.gz', '')
+                print(f"New name: {new_name}")
+                cleaned_new_name = new_name.split('.')[0] + final_side
                 new_key = f"{cleaned_new_name}_{suffix}" if suffix else new_name
                 new_data[new_key] = value
             else:
@@ -38,9 +42,9 @@ def rename_keys(original_json, output_json, mapping_dict):
     return output_json
 
 if __name__ == "__main__":
-    original_json_path = r"E:\test_stemlit\stl_metadata.json"
-    output_json_path = r"E:\test_stemlit\stl_metadata_renamed.json"
+    original_json_path = r"E:\fix_orientation\raw\stl_metadata.json"
+    output_json_path = r"E:\fix_orientation\raw\stl_metadata_fixed.json"
 
     
-    mapping_dict = {'001': '57-25L-SynG3_57-25L-SynG3_Series16_OSG-61-0,80-Br64-A3-KF.nii.gz', '002': '57-25L-SynG3_57-25L-SynG3_Series21_OSG-63-0,80-Br40-A1-WT.nii.gz', '003': '57-25L-SynG3_57-25L-SynG3_Series23_OSG-64-0,80-Br40-A1-WT.nii.gz', '004': '57-25L-SynG3_57-25L-SynG3_Series28_OSG-67-0,80-Br64-A3-KF.nii.gz', '005': '57-25L-SynG3_57-25L-SynG3_Series35_OSG-70-0,80-Br40-A1-WT.nii.gz', '006': '57-25L-SynG3_57-25L-SynG3_Series41_OSG-R1-III-0,80-Br40-A1-WT.nii.gz'}
+    mapping_dict = {'001': "Anonymous-Female-1975_Anonymous-Female-1975_Series201_1mm-x,-iDose-(3).nii.gz", } 
     rename_keys(original_json_path, output_json_path, mapping_dict)

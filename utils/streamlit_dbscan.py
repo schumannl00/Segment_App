@@ -7,7 +7,9 @@ from sklearn.preprocessing import StandardScaler
 import json
 import sys
 from pathlib import Path
+import os
 
+os.environ["LOKY_MAX_CPU_COUNT"] = "16"
 # 1. SETUP & DATA LOADING
 st.set_page_config(page_title="STL Quality Control", layout="wide")
 st.title("STL Segmentation Outlier Check")

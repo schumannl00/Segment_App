@@ -1,18 +1,20 @@
 import os 
 import numpy as np
 import nibabel as nib
-from nibabel import load, Nifti1Image, save 
+from nibabel import load, Nifti1Image, save #type: ignore 
 import shutil
 import pathlib
 from pathlib import Path
 from nibabel.orientations import axcodes2ornt, io_orientation, ornt_transform
+from typing import List, Tuple, Union 
+PathLike = Union[str, Path]
 
 def cut_volume(
-    nii_path: str,
-    lower: tuple[int | None, int | None, int | None],
-    upper: tuple[int | None, int | None, int | None], 
+    nii_path: PathLike ,
+    lower: Tuple[int | None, int | None, int | None],
+    upper: Tuple[int | None, int | None, int | None], 
     keep_original: bool,
-    destination_dir: str,
+    destination_dir: PathLike,
     localiser : str = "cut" , percents_given: bool = False, input_type : str = "RAS") -> str:
     """
     Cut a NIfTI volume along x, y, z axes.
@@ -31,11 +33,11 @@ def cut_volume(
         Directory for backup if keep_original is True.
     """
     os.makedirs(destination_dir, exist_ok = True)
-    nii = nib.load(nii_path)
+    nii = nib.load(nii_path) #type: ignore 
     
     # 1. Standardize Orientation
     # Get current orientation of the file
-    orig_ornt = io_orientation(nii.affine)
+    orig_ornt = io_orientation(nii.affine) #type: ignore 
     
     # Define our target: RAS+ (Standard Neurological)
     target_ornt = axcodes2ornt(('R', 'A', 'S'))
@@ -44,22 +46,27 @@ def cut_volume(
     if not np.array_equal(orig_ornt, target_ornt):
         print(f"Reorienting from {orig_ornt} to {target_ornt}")
         transform = ornt_transform(orig_ornt, target_ornt)
-        nii = nii.as_reoriented(transform)
+        nii = nii.as_reoriented(transform) #type:ignore
     
     # Now that we are in RAS: 
     # Index 0 is Left->Right, 1 is Post->Ant, 2 is Inf->Sup
-    shape = nii.shape
+    shape = nii.shape #type: ignore 
     processed_lower = []
     processed_upper = []
-
+    safe_lower = lower if lower is not None else [None, None, None]
+    safe_upper = upper if upper is not None else [None, None, None]
     for i in range(3):
         dim_max = shape[i]
-        
+        val_low = safe_lower[i]
+        val_high = safe_upper[i]
         # 1. Handle None defaults first
-        l_input = lower[i] if lower[i] is not None else 0
-        u_input = upper[i] if upper[i] is not None else (100 if percents_given else dim_max)
-
+        l_input = val_low if val_low is not None else 0
+        u_input = val_high if val_high is not None else (100 if percents_given else dim_max)
+        
         # 2. Convert to absolute RAS pixels
+
+        l_px: int # Declare the type explicitly
+        u_px: int
         if percents_given:
             l_px = int(dim_max * (l_input / 100.0))
             u_px = int(dim_max * (u_input / 100.0))
@@ -84,14 +91,14 @@ def cut_volume(
     final_coords = [slice(l, u) for l, u in zip(processed_lower, processed_upper)]
     # 3. Efficient slicing using dataobj (Lazy Load)
     slicers = tuple(final_coords)
-    roi = np.asarray(nii.dataobj[slicers])
-    affine = nii.affine.copy()
+    roi = np.asarray(nii.dataobj[slicers]) #type: ignore
+    affine = nii.affine.copy() #type: ignore 
 
     offset = np.array([0 if s.start is None else s.start for s in final_coords ] + [1])
     print("Offset:", offset)
     print("Slicers:", slicers)
     if np.any(offset[:3] > 0):
-        new_origin = nii.affine @ offset
+        new_origin = nii.affine @ offset #type: ignore 
         affine[:3, 3] = new_origin[:3]
 
     p = Path(nii_path)
@@ -108,7 +115,7 @@ def cut_volume(
 
 
 
-def sep(nii_path : str, x_cut : int,  destination_dir : str ): 
+def sep(nii_path : PathLike, x_cut : int,  destination_dir : PathLike ): 
     # Right half (array left → anatomy right)
     right_file = cut_volume(
         nii_path=nii_path,
@@ -136,19 +143,19 @@ def sep(nii_path : str, x_cut : int,  destination_dir : str ):
 def zcut(nii_path : str, lower : int, upper : int , keep_original: bool, backup_dir : str ) -> None :
     nii = load(nii_path)
     suffix = "cut"
-    x_range=slice(0,nii.shape[0])
-    y_range =slice(0,nii.shape[1])
-    max_z = nii.shape[2]
+    x_range=slice(0,nii.shape[0]) #type: ignore 
+    y_range =slice(0,nii.shape[1]) #type: ignore 
+    max_z = nii.shape[2] #type: ignore 
     upper = min(upper, max_z)
     cut_z_range = slice(lower, upper)
-    roi = np.asarray(nii.dataobj[x_range,y_range,cut_z_range])
-    affine = nii.affine.copy()
+    roi = np.asarray(nii.dataobj[x_range,y_range,cut_z_range]) #type: ignore 
+    affine = nii.affine.copy() #type: ignore 
     if lower > 0:
         offset = np.array([0, 0, lower, 1])
-        new_origin = nii.affine @ offset
+        new_origin = nii.affine @ offset #type: ignore 
         affine[:3, 3] = new_origin[:3]
     img = Nifti1Image(roi, affine=affine)
-    basename, ext = nii.get_filename().split(os.extsep, 1)
+    basename, ext = nii.get_filename().split(os.extsep, 1) #type: ignore 
     out_name= f'{basename}_{suffix}.{ext}'
     save(img, out_name)
     if keep_original:
@@ -160,10 +167,10 @@ def zcut(nii_path : str, lower : int, upper : int , keep_original: bool, backup_
 
 #this is not the best option but worked so far, cut also properly cut the images, some viewers might struggle with the overlay, and if stuff ges wrong, simply adding is easier
 def masking(nii_path):
-    nib.openers.Opener.default_compresslevel = 9
+    nib.openers.Opener.default_compresslevel = 9 #type: ignore 
     nii = load(nii_path)
-    volume =  nii.get_fdata()
-    affine = nii.affine
+    volume =  nii.get_fdata() #type: ignore 
+    affine = nii.affine #type: ignore 
     x_split= volume.shape[0]//2
     left_data=volume.copy()
     left_data[x_split:,:,:]=0 #zeros out left side of the images which corresponds to the patients right side in the usual position, not with ras anymore 
@@ -173,7 +180,7 @@ def masking(nii_path):
     right_data[:x_split,:,:] =0
     img_rechts = Nifti1Image(right_data.astype(np.int16), affine)
     img_links = Nifti1Image(left_data.astype(np.int16), affine)
-    basename, ext = nii.get_filename().split(os.extsep, 1)
+    basename, ext = nii.get_filename().split(os.extsep, 1) #type: ignore 
     out_name_rechts = f'{basename}-{suffix_right}.{ext}'
     out_name_links = f'{basename}-{suffix_left}.{ext}'
     save(img_rechts, out_name_rechts)

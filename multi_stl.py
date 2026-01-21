@@ -16,20 +16,33 @@ from concurrent.futures import ProcessPoolExecutor, as_completed
 from functools import partial
 import multiprocessing as mp
 from utils.stl_metadata import calculate_volume_and_surface_area, save_metadata_to_json
+from typing import List, Dict, Tuple, Optional, Union, Any, TypedDict
 
-def smooth_mesh_pyvista(vertices, faces, method='taubin', n_iter=100, relaxation_factor=0.1):
+class SegmentConfig(TypedDict, total=False):
+    label: str
+    smoothing: float
+    mesh_smoothing_method: str
+    mesh_smoothing_iterations: int
+    mesh_smoothing_factor: float
+
+# Define a shortcut for types objects
+PathLike = Union[str, Path]
+ProcessResult = Tuple[str, bool, Optional[str], List[Tuple[str, Dict[str, float]]]]
+
+def smooth_mesh_pyvista(vertices : np.ndarray, faces : np.ndarray, method : str ='taubin', n_iter : int =100, relaxation_factor : float =0.1) -> np.ndarray:
     """Smooth a mesh using PyVista's smoothing algorithms."""
     vertices = np.array(vertices, dtype=np.float64)
     original_centroid = np.mean(vertices, axis=0)
     print(f"Original centroid located at {original_centroid}")
     
     faces_pv = np.hstack([[3, f[0], f[1], f[2]] for f in faces])
-    mesh_pv = pv.PolyData(vertices, faces_pv)
-    
+    mesh_pv : pv.PolyData  = pv.PolyData(vertices, faces_pv)
+    mesh_smoothed: pv.PolyData 
+    temp_mesh: Any = mesh_pv
     if method == 'laplacian':
-        mesh_smoothed = mesh_pv.smooth(n_iter=n_iter, relaxation_factor=relaxation_factor)
+        mesh_smoothed = temp_mesh.smooth(n_iter=n_iter, relaxation_factor=relaxation_factor)
     elif method == 'taubin':
-        mesh_smoothed = mesh_pv.smooth_taubin(n_iter=n_iter, pass_band=relaxation_factor)
+        mesh_smoothed = temp_mesh.smooth_taubin(n_iter=n_iter, pass_band=relaxation_factor)
     else:
         raise ValueError(f"Unknown smoothing method: {method}")
     
@@ -61,14 +74,14 @@ def fill_holes_3d(segmentation):
     return filled_segmentation.astype(np.uint8)
 
 
-def convert_to_LPS(vertices):
+def convert_to_LPS(vertices : np.ndarray) -> np.ndarray:
     """Convert vertices to LPS coordinate system."""
     vertices[:, 1] *= -1.0
     vertices[:, 0] *= -1.0
     return vertices
 
 
-def process_single_file(file_info, segment_params, fill_holes=0, use_pymeshfix=True, remove_islands=True):
+def process_single_file(file_info : Tuple[str, str, str | int ], segment_params : Dict[int, SegmentConfig], fill_holes : int =0, use_pymeshfix : bool =True, remove_islands : bool =True) -> ProcessResult:
     """
     Process a single NIfTI file. This function is designed to be called by multiprocessing.
     
@@ -87,11 +100,11 @@ def process_single_file(file_info, segment_params, fill_holes=0, use_pymeshfix=T
     try:
         simple_name = Path(file_name).stem.split('.')[0]
         print(f"[PID {os.getpid()}] Processing {file_name}")
-        nib.openers.Opener.default_compresslevel = 9
-        nii_img = nib.load(input_file)
-        nii_data = nii_img.get_fdata()
-        spacing = nii_img.header.get_zooms()
-        affine = nii_img.affine
+        nib.openers.Opener.default_compresslevel = 9 #type: ignore
+        nii_img = nib.load(input_file) #type: ignore
+        nii_data = nii_img.get_fdata() #type: ignore
+        spacing = nii_img.header.get_zooms() #type: ignore
+        affine = nii_img.affine #type: ignore
         orientation = nib.orientations.io_orientation(affine)
         print(" Image orientation:", orientation)
         for label, params in segment_params.items():
@@ -175,7 +188,7 @@ def process_single_file(file_info, segment_params, fill_holes=0, use_pymeshfix=T
             stl_mesh = mesh.Mesh(np.zeros(faces.shape[0], dtype=mesh.Mesh.dtype))
             for i, face in enumerate(faces):
                 for j in range(3):
-                    stl_mesh.vectors[i][j] = verts[face[j]]
+                    stl_mesh.vectors[i][j] = verts[face[j]] #type: ignore
             
             if "links" in output_dir:
                 output_file = f"{output_dir}/{output_label}_{file_number}_links.stl"
@@ -184,7 +197,7 @@ def process_single_file(file_info, segment_params, fill_holes=0, use_pymeshfix=T
             else:
                 output_file = f"{output_dir}/{output_label}_{file_number}.stl"
             
-            stl_mesh.save(output_file)
+            stl_mesh.save(output_file) #type: ignore 
             print(f"[PID {os.getpid()}] Saved {output_file}")
         
         return (file_name, True, None, metadata_entries)
@@ -209,9 +222,9 @@ def save_checkpoint(checkpoint_file, completed, failed):
         json.dump({"completed": completed, "failed": failed}, f, indent=2)
 
 
-def process_directory_parallel(input_dir : str, output_root_dir : str , segment_params : dict, 
+def process_directory_parallel(input_dir : PathLike, output_root_dir : PathLike , segment_params : dict, 
                                fill_holes : int =0, split: bool=False, use_pymeshfix : bool =True, remove_islands : bool =True, 
-                               max_workers : int =None, batch_size : int =50, resume : bool =True, stl_metadata_path : str = None) -> list:
+                               max_workers : int | None  =None, batch_size : int =50, resume : bool =True, stl_metadata_path : PathLike | None = None) -> List[ProcessResult]:
     
     os.makedirs(output_root_dir, exist_ok=True)
     p = Path(output_root_dir)

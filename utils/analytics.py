@@ -11,7 +11,7 @@ import json
 
 
 # Helper function to process a single NIfTI image and mask pair
-def process_single_hu_mask_pair(hu_nii_path : Path , labelmap_path: Path , original_subject_filename : str, labelmap_filename : str , hu_nii_filename: str, id: int, labels_dict: dict) -> list:
+def process_single_hu_mask_pair(hu_nii_path : Path | str , labelmap_path: Path | str , original_subject_filename : str, labelmap_filename : str , hu_nii_filename: str, id: int, labels_dict: dict) -> list:
     """
     Processes a single image/mask pair, calculates HU statistics, merges mesh data,
     and computes T-scores for specified bone density labels.
@@ -24,13 +24,13 @@ def process_single_hu_mask_pair(hu_nii_path : Path , labelmap_path: Path , origi
     try:
         # Load NIfTI Image and Mask
         print(f"Processing: {hu_nii_filename} and {labelmap_filename}")
-        hu_img = nib.load(hu_nii_path)
-        mask_img = nib.load(labelmap_path)
+        hu_img = nib.load(hu_nii_path) 
+        mask_img = nib.load(labelmap_path)  
         
-        hu_data = hu_img.get_fdata()
-        mask_data = mask_img.get_fdata()
+        hu_data = hu_img.get_fdata() 
+        mask_data = mask_img.get_fdata() 
         
-        # Voxel size for volume calculation
+        # Voxel size for volume calculation mkn,
         voxel_volume = np.prod(hu_img.header.get_zooms()[:3]) 
         
         if hu_data.shape != mask_data.shape:
@@ -85,7 +85,7 @@ def process_single_hu_mask_pair(hu_nii_path : Path , labelmap_path: Path , origi
     return results_list
 
 # The main function using concurrent futures
-def calculate_hu_stats(inference_path : Path, labelmap_output_path : Path, file_mapping : dict, output_directory : Path , max_workers :int =12, id : str = None, labels_dict : dict =None, stl_metadata_path : Path = None, number_to_name_dict : dict = None) -> bool :
+def calculate_hu_stats(inference_path : Path | str , labelmap_output_path : Path | str , file_mapping : dict, output_directory : Path , max_workers :int =12, id : str | None  = None, labels_dict : dict | None  =None, stl_metadata_path : Path | str |  None = None, number_to_name_dict : dict | None  = None) -> bool :
 
     os.makedirs(output_directory, exist_ok=True)    
 
@@ -93,7 +93,7 @@ def calculate_hu_stats(inference_path : Path, labelmap_output_path : Path, file_
  
 
     num_to_og_map = {info['number']: og_name for og_name, info in file_mapping.items()}
-
+    
     tasks_to_run = []
     # Create inverted mapping: nnUNet_Base_Name (e.g., 'Leg_001_0000') -> Original_Nii_Filename (e.g., 'PID_PNAME_...')
     inverted_mapping = {Path(info['new_filename']).name.split('.')[0]: og_name for og_name, info in file_mapping.items()}
@@ -104,18 +104,28 @@ def calculate_hu_stats(inference_path : Path, labelmap_output_path : Path, file_
     
     # 1. Prepare all tasks (collect paths and parameters)
     for labelmap_filename in os.listdir(labelmap_output_path):
+        str_rechts = None 
+        str_links = None 
         if labelmap_filename.endswith(".nii.gz") or labelmap_filename.endswith(".nii"):
             
             labelmap_base_name = Path(labelmap_filename).stem.split('.')[0] 
+            if "-rechts" in labelmap_base_name:
+                clean_label = labelmap_base_name.replace("-rechts", "")
+                str_rechts = "-rechts"
+            elif "-links" in labelmap_base_name: 
+                clean_label = labelmap_base_name.replace("-links", "")
+                str_links = "-links"
+            else: clean_label = labelmap_base_name
             
-            original_subject_filename = inverted_mapping.get(labelmap_base_name + NNUNET_CHANNEL_SUFFIX)
+            original_subject_filename = inverted_mapping.get(clean_label + NNUNET_CHANNEL_SUFFIX)
+            
             if not original_subject_filename: continue
 
             new_file_info = file_mapping.get(original_subject_filename)
             if not new_file_info: continue
-                 
-            nnunet_simple_name = Path(new_file_info['new_filename']).stem.split('.')[0]
             
+            nnunet_simple_name = Path(new_file_info['new_filename']).stem.split('.')[0]
+            print(nnunet_simple_name)
             # Construct the HU filename by appending the channel suffix
             hu_nii_filename = f"{nnunet_simple_name}.nii.gz"
             
@@ -127,12 +137,18 @@ def calculate_hu_stats(inference_path : Path, labelmap_output_path : Path, file_
                 continue
             try:
                 file_num = Path(labelmap_filename).stem.split('.')[0].split('_')[-1]
-                print(file_num)
+                if str_links: 
+                    file_num = file_num.split("-")[0]
+                if str_rechts: 
+                    file_num = file_num.split("-")[0]
             except IndexError:
                 continue
-
-            original_subject_filename = num_to_og_map.get(file_num).split('.')[0]
-
+   
+            original_subject_filename = num_to_og_map.get(file_num).split('.')[0] #type: ignore
+            if str_rechts: 
+                original_subject_filename += "_RECHTS"
+            if str_links: 
+                original_subject_filename += "_LINKS"
             
             # Append task parameters
             tasks_to_run.append((hu_nii_path, labelmap_path, original_subject_filename, labelmap_filename, hu_nii_filename, id, labels_dict))
@@ -201,7 +217,7 @@ def calculate_hu_stats(inference_path : Path, labelmap_output_path : Path, file_
     # We use 'left' join to keep all HU rows even if STL data is missing
     df = pd.merge(df, stl_df, on=['Subject_File', 'Label_Name'], how='left')
 
-    s
+    
     insertion_index = column_order.index('Voxel_Volume_mm3') + 1
 
 
@@ -275,22 +291,22 @@ def calculate_hu_stats(inference_path : Path, labelmap_output_path : Path, file_
 
 if __name__ == "__main__":
     # Example usage (paths would need to be set appropriately)
-    inference_dir = Path("C:\\Users\\schum\\Desktop\\zesbo\\label_ver\\nii")
-    labelmap_dir = Path("C:\\Users\\schum\\Desktop\\zesbo\\label_ver\\label")
-    output_dir = Path("C:\\Users\\schum\\Desktop\\zesbo\\label_ver\\output_stats")
+    inference_dir = Path(r"E:\fix_orientation\raw\NIFTI")
+    labelmap_dir = Path(r"E:\fix_orientation\raw\label")
+    output_dir = Path(r"E:\fix_orientation\raw\HU_Analytics")
     
     # Example file mapping
-    example_file_mapping = {
-      "Scan_01" : {"new_filename": "Sco_001.nii.gz", "number" : "001"},
-        "Scan_02" : {"new_filename": "Sco_002.nii.gz", "number" : "002"},
-        "Scan_03" : {"new_filename": "Sco_003.nii.gz", "number" : "003"},
-          "Scan_04" : {"new_filename": "Sco_004.nii.gz", "number" : "004"}
-    }
-    labels_dict = { "117": {
-        "1" : "C",
-        "2" : "T",
-        "3" : "L", 
-        "4" : "Ribs"
+    example_file_mapping = {"Anonymous-Female-1975_Anonymous-Female-1975_Series201_1mm-x,-iDose-(3).nii.gz": {
+        "new_filename": "Leg_001_0000.nii.gz",
+        "number": "001"} } 
+
+       
+    
+    labels_dict = { "121": {
+        "1" : "Fibula",
+        "2" : "Patella",
+        "3" : "Tibia", 
+        "4" : "Femur"
     }}
     
-    calculate_hu_stats(inference_dir, labelmap_dir, example_file_mapping, output_dir, id="117", labels_dict=labels_dict, stl_metadata_path=None)
+    calculate_hu_stats(inference_dir, labelmap_dir, example_file_mapping, output_dir, id="121", labels_dict=labels_dict, stl_metadata_path=r"E:\fix_orientation\raw\stl_metadata_fixed.json")

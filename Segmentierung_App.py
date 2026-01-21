@@ -17,7 +17,7 @@ import queue
 import dicom2nifti
 import pydicom 
 import dicom2nifti.settings as settings 
-from nnunetv2.paths import nnUNet_results, nnUNet_raw
+from nnunetv2.paths import nnUNet_results, nnUNet_raw 
 import torch
 from batchgenerators.utilities.file_and_folder_operations import join
 from nnunetv2.inference.predict_from_raw_data import nnUNetPredictor
@@ -44,6 +44,42 @@ with open("ids.json", "r") as ids:
     id_dict = json.load(ids)
 with open("labels.json", "r") as labels:
     labels_dict = json.load(labels)
+from typing import TypedDict, List, Optional, Union, Dict, Any, Set
+# pyright: reportAttributeAccessIssue=false
+# pyright: reportGeneralTypeIssues=false
+# pyright: reportOptionalMemberAccess=false
+# pyright: reportWildcardImportFromLibrary= false
+# pyright: reportCallIssue = false 
+
+
+
+AppParameters = TypedDict('AppParameters', {
+    "Input Path": str,
+    "STL Output Path": Optional[str],
+    "Labelmap Output Path": Optional[str],
+    "Scan Indicators": Optional[List[str]],
+    "Group Filter": Optional[str],
+    "Use Default Indicators": bool,
+    "ID": str,
+    "Configuration": str,
+    "Folds": List[int],
+    "Split": bool,
+    "cut_enabled": bool,
+    "lower_x": Optional[str],
+    "upper_x": Optional[str],
+    "lower_y": Optional[str],
+    "upper_y": Optional[str],
+    "lower_z": Optional[str],
+    "upper_z": Optional[str],
+    "keep_originals": bool,
+    "use_percent": bool,
+    "used_lps": bool,
+    "use_meshrepair": bool,
+    "remove_islands": bool,
+    "name_only": bool,
+    "nifti_input": bool,
+    "run_analytics": bool
+}, total=True)
 
 # Default segment parameters -  smoothing for labelmap just removes salt-pepper noise, taubin maintains volume with  light smoothing-params to remove some steps\artifacts 
 default_segment_params = {
@@ -167,7 +203,7 @@ class ParameterGUI:
             indicator_controls_frame, 
             text="+", 
             width=3, 
-            command=self.add_custom_indicator, bootstyle= "info", )
+            command=self.add_custom_indicator, bootstyle= "info", ) 
         
         
         self.add_custom_button.grid(row=0, column=1, padx=(5, 5))
@@ -382,7 +418,7 @@ class ParameterGUI:
         # Progress bar for displaying operation progress
         self.progress_var = tk.DoubleVar()
         self.progress_bar = tb.Progressbar(main_frame, variable=self.progress_var, maximum=100)
-        self.progress_bar.grid(row=5, column=0, columnspan=2, sticky=(tk.W, tk.E), pady=(10, 0))
+        self.progress_bar.grid(row=5, column=0, columnspan=2, sticky=(tk.W, tk.E), pady=(10, 0)) #type: ignore
         
         # Segment parameters editing window
         self.segment_params_button = tb.Button(button_frame, text="Edit Segment Params", command=self.edit_segment_params)
@@ -617,7 +653,7 @@ class ParameterGUI:
         # Ask the user if they want to select a file or a folder
         choice = filedialog.askopenfilename(
             title="Select Folder",
-            filetypes=(("All Files", "*.*")),
+            filetypes=(("All Files", "*.*")), #type: ignore
             initialdir=os.getcwd()
         )
         
@@ -699,7 +735,7 @@ class ParameterGUI:
  
 
     @gui_log_output(get_log_dir_from_args=lambda s, params: Path(params["Input Path"]).parent / "logs")
-    def process_data(self, params):
+    def process_data(self, params : AppParameters):
         """Process the input data using the parameters from the GUI"""
         try:
             
@@ -1007,11 +1043,11 @@ class ParameterGUI:
             return
 
         # Collect parameters
-        params = {
+        params : AppParameters = {
             "Input Path": self.input_path.get(),
             "STL Output Path": self.stl_output_path.get(),
             "Labelmap Output Path": self.labelmap_output_path.get(),
-            "Scan Indicators": self.selected_indicators,
+            "Scan Indicators": self.selected_indicators, #type: ignore
             "Group Filter": self.group_filter_var.get().strip(),
             "Use Default Indicators": self.use_default_indicators.get(),
             "ID": self.id_var.get(),

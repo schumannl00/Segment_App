@@ -12,10 +12,11 @@ from pydicom.errors import InvalidDicomError
 import numpy as np
 import nibabel as nib
 from nibabel.orientations import io_orientation, axcodes2ornt, ornt_transform
-
+from typing import List, Pattern, Tuple, Set, Dict 
 settings. disable_validate_slice_increment()
 #rewrote  so no splitting needed anymore, any spaces are replaced by - already 
-def build_pattern(indicator):
+
+def build_pattern(indicator : str ) -> re.Pattern:
     forbidden_boundary = r"[\w.+\-]"
     escaped_indicator = re.escape(indicator)
     pattern = f"(?<!{forbidden_boundary}){escaped_indicator}(?!{forbidden_boundary})"
@@ -25,17 +26,17 @@ def build_pattern(indicator):
 
 
 # Precompiled regex
-sanitize_general = re.compile(r'[\\/*?:"<>|_]')
-sanitize_spaces = re.compile(r'\s+')
+sanitize_general : re.Pattern = re.compile(r'[\\/*?:"<>|_]')
+sanitize_spaces : re.Pattern = re.compile(r'\s+')
 
-def clean_string(s):
+def clean_string(s : str ) -> str:
     s = sanitize_general.sub("-", s)
     s = sanitize_spaces.sub("-", s)
     s = s.strip().rstrip(".")
     return s or "Unknown"
 
 
-def safe_copy(src_dst):
+def safe_copy(src_dst : Tuple[str, str]):
     src, dst = src_dst
     try:
         shutil.copyfile(src, dst)
@@ -44,7 +45,8 @@ def safe_copy(src_dst):
         return e
 
 
-def DICOM_splitter(path, max_workers=32, use_only_name : bool = True):
+def DICOM_splitter(path : str | Path , max_workers : int = 32, use_only_name : bool = True):
+    """Splits a potentially direcroty of Dicom files into nicely named directory one for each scan/document . """
     p = Path(path)
 
     sort_dir = p.parent / 'sortiert'
@@ -146,22 +148,24 @@ def DICOM_splitter(path, max_workers=32, use_only_name : bool = True):
 
 
 # --- Helper function for converting a single series ---
-def convert_single_series_to_nifti(input_dir_path, output_nifti_path):
-    
+def convert_single_series_to_nifti(input_dir_path : str | Path, output_nifti_path : str | Path ) -> Tuple[str, bool, str]:
     """Converts a single directory of DICOM series to a NIFTI file."""
+    input_dir_path = Path(input_dir_path)
+    output_nifti_path = Path(output_nifti_path)
+
     try:
         print(f"Attempting conversion: {input_dir_path} -> {output_nifti_path}")
         
-        Path(output_nifti_path).parent.mkdir(exist_ok=True)
+        output_nifti_path.parent.mkdir(exist_ok=True)
         dicom2nifti.dicom_series_to_nifti(str(input_dir_path), str(output_nifti_path), reorient_nifti=True )
 
-        nii = nib.load(str(output_nifti_path)) 
-        orig_orient = io_orientation(nii.affine)
+        nii = nib.load(str(output_nifti_path)) #type: ignore 
+        orig_orient = io_orientation(nii.affine) #type: ignore 
         target_orient = axcodes2ornt(('R', 'A', 'S'))
         if not np.array_equal(orig_orient, target_orient):
             transform = ornt_transform(orig_orient, target_orient)
-            nii_ras = nii.as_reoriented(transform)
-            nib.save(nii_ras, str(output_nifti_path))
+            nii_ras = nii.as_reoriented(transform) #type: ignore 
+            nib.save(nii_ras, str(output_nifti_path)) #type: ignore 
             print(f"Reoriented NIFTI to RAS for: {output_nifti_path.name}")
 
         print(f"Successfully converted: {output_nifti_path.name}")
@@ -180,7 +184,7 @@ def convert_single_series_to_nifti(input_dir_path, output_nifti_path):
         return (str(input_dir_path), False, error_msg) # Return input, failure status, error message
 
 # --- Main function using ProcessPoolExecutor ---
-def raw_data_to_nifti_parallel(raw_path, scans_indicators=None, group_filter = None, use_default=False, max_workers=12, use_only_name=True, max_workers_dicom=32):
+def raw_data_to_nifti_parallel(raw_path : str | Path , scans_indicators : List[str] | None   = None, group_filter : str | None = None, use_default : bool =False, max_workers : int =12, use_only_name : bool =True, max_workers_dicom  : int =32):
     """
     Sorts DICOMs and converts selected series to NIFTI in parallel.
 
@@ -190,12 +194,13 @@ def raw_data_to_nifti_parallel(raw_path, scans_indicators=None, group_filter = N
                                            directory name contains one of these
                                            indicators will be converted (unless use_default=True).
                                            Defaults to None.
-        use_default (bool, optional): If True, attempts to convert all series,
+        use_default (bool): If True, attempts to convert all series,
                                       ignoring scans_indicators. Defaults to False.
-        max_workers (int, optional): Maximum number of processes to use for conversion.
+        max_workers (int): Maximum number of processes to use for conversion.
                                      Defaults to 12.
-        use_only_name (bool, optional): If True, uses only PatientName for folder naming during DICOM splitting.
+        use_only_name (bool): If True, uses only PatientName for folder naming during DICOM splitting.
                                         Defaults to True.
+        max_workers_dicom (int) :  Maximum number of processes to use for DICOM sorting and copying  
     """
     start_time = time.time()
     p = Path(raw_path)
@@ -242,7 +247,7 @@ def raw_data_to_nifti_parallel(raw_path, scans_indicators=None, group_filter = N
     skipped_dirs = []
     dirs_to_convert = []
 
-    for item_name in os.listdir(sort_dir):
+    for item_name  in os.listdir(sort_dir):
         full_path = sort_dir / item_name
         if full_path.is_dir():
             parts = item_name.split("_")
@@ -263,7 +268,7 @@ def raw_data_to_nifti_parallel(raw_path, scans_indicators=None, group_filter = N
                 
                 
                 if group_pattern:
-                    if group_pattern.search(item_name):
+                    if group_pattern.search(item_name):  #type: ignore 
                         match_group = True
                 
                 # Convert if *either* filter matches (and filters are active)
@@ -353,17 +358,17 @@ def raw_data_to_nifti_parallel(raw_path, scans_indicators=None, group_filter = N
 
 
 
-def modify_metadata(dcm_file, backup=True, custom = False, new_desc= '', new_name = ''):
-    # Blueprint for changing metadata of DICOM files, here just series description 
+def modify_metadata(dcm_file : str | Path, backup : bool =True, custom : bool | None  = False, new_desc : str | None = None , new_name : str | None = None ):
+    """Modifies metadata of a single file"""
     # For more Keywords, tags see https://dicom.innolitics.com/ciods/rt-dose/patient/00100010
     try:
         ds = pydicom.dcmread(dcm_file)
         
-        # Create backup if requested
-        if backup:
-            ds.save_as(dcm_file.replace('.dcm', '_backup.dcm'))
         
-        # Get acquisition number (default to empty string if not present)
+        if backup:
+            ds.save_as(dcm_file.replace('.dcm', '_backup.dcm')) #type: ignore 
+        
+        
         acq_num = str(ds.get('AcquisitionNumber', ''))
         #study_id= (0x0020,0x0010)  #tags as names are unreliable 
         #series_tag=(0x0021,0x1003) #tags as names are unreliable, check if the tag is there before uncommenting, it is private in most cases
@@ -419,7 +424,7 @@ def modify_metadata(dcm_file, backup=True, custom = False, new_desc= '', new_nam
 
 # Modifies all DICOMs in the given directory with the specific instructions given in modify_series_description so modify than accordingly especially the new_desc variable 
 
-def modify_dcms(directory_path, new_desc, new_name,custom):
+def modify_dcms(directory_path : str | Path, new_desc : str | None , new_name : str | None , custom : bool | None  ):
     path= Path(directory_path)
     mod_files = 0 
     for root, dirs, files in os.walk(path):
@@ -432,7 +437,7 @@ def modify_dcms(directory_path, new_desc, new_name,custom):
     print(mod_files)
 
 #Just a simple renamer function for the nnUNet convention without any LUT 
-def nifti_renamer(nii_path, prefix, suffix, number, file_mapping):
+def nifti_renamer(nii_path : str | Path , prefix : str | None , suffix: str | None , number : int , file_mapping : dict):
     p=Path(nii_path)
     dir= p.parent
     filled_number = str(number+1).zfill(3)
