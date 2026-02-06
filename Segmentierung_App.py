@@ -975,9 +975,15 @@ class ParameterGUI:
 
             
             
-            python_exe = sys.executable
-            cmd = [python_exe, "-m", "streamlit", "run", "utils/streamlit_dbscan.py", "--",  cleaned_metapath] 
-            subprocess.run(cmd)
+            case_count = sum(1 for x in Path(stl_output_path).iterdir() if x.is_dir())
+
+            if case_count >= 10:
+                print(f"Large batch detected ({case_count} cases). Launching Streamlit dashboard...")
+                python_exe = sys.executable
+                cmd = [python_exe, "-m", "streamlit", "run", "utils/streamlit_dbscan.py", "--", cleaned_metapath]
+                subprocess.run(cmd)
+            else:
+                print(f"Only {case_count} cases processed. Skipping dashboard launch.")
             
             self.progress_queue.put(ProgressEvent(100, "Processing complete!", completed=True))
             

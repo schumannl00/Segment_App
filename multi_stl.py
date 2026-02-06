@@ -29,6 +29,19 @@ class SegmentConfig(TypedDict, total=False):
 PathLike = Union[str, Path]
 ProcessResult = Tuple[str, bool, Optional[str], List[Tuple[str, Dict[str, float]]]]
 
+
+def debug_normals(verts, faces, mag=5.0):
+    """Visualizes face normals as arrows."""
+    # Create the PyVista mesh
+    # Note: faces in PyVista need to be [3, v1, v2, v3, 3, v4, v5, v6...]
+    pv_faces = np.column_stack([np.full(len(faces), 3), faces]).ravel()
+    mesh = pv.PolyData(verts, pv_faces)
+    
+    # Compute and plot normals
+    # 'mag' controls arrow length; 'use_every' prevents clutter
+    mesh.plot_normals(mag=mag, faces=True, show_edges=True, use_every=10, color='red')
+
+
 def smooth_mesh_pyvista(vertices : np.ndarray, faces : np.ndarray, method : str ='taubin', n_iter : int =100, relaxation_factor : float =0.1) -> np.ndarray:
     """Smooth a mesh using PyVista's smoothing algorithms."""
     vertices = np.array(vertices, dtype=np.float64)
@@ -156,29 +169,39 @@ def process_single_file(file_info : Tuple[str, str, str | int ], segment_params 
             verts = (affine @ verts.T).T[:, :3]
             convert_to_LPS(verts)
             
-            # Mesh smoothing
+            # 2. Initial Heavy Smoothing
+            # Providing a cleaner surface for pymeshfix
             if mesh_iterations > 0:
                 verts = smooth_mesh_pyvista(verts, faces, method=mesh_method, 
                                           n_iter=mesh_iterations, relaxation_factor=mesh_factor)
             
-            # Pymeshfix repair
+            # 3. Pymeshfix Repair and Normal Correction
             if use_pymeshfix:
-                print(f"[PID {os.getpid()}] Attempting Pymeshfix repair")
                 try:
                     meshfix = pymeshfix.MeshFix(verts, faces)
                     meshfix.repair(verbose=False, remove_smallest_components=remove_islands)
-                    verts_repaired = meshfix.v
-                    faces_repaired = meshfix.f
-                    if faces_repaired.shape[0] > 0:
-                        print(f"[PID {os.getpid()}] Pymeshfix successful")
-                        verts, faces = verts_repaired, faces_repaired
-                    else:
-                        print(f"[PID {os.getpid()}] Pymeshfix resulted in empty mesh")
+                    verts, faces = meshfix.v, meshfix.f
+                    
+                    t_mesh = trimesh.Trimesh(vertices=verts, faces=faces, process=False)
+                    
+                    # Fix consistency (ensure all triangles face the same way they should already, if not watertight might make more problems)
+                    #trimesh.repair.fix_normals(t_mesh)
+                    
+                    trimesh.repair.fix_inversion(t_mesh)
+                    
+                    verts, faces = t_mesh.vertices, t_mesh.faces
+                    # --- CRITICAL FIX END ---
+
+                    # 4. Light post-repair smoothing (n=50) to remove pymeshfix artifacts
+                    verts = smooth_mesh_pyvista(verts, faces, method=mesh_method, 
+                                              n_iter=50, relaxation_factor=0.1)
                 except Exception as e:
-                    print(f"[PID {os.getpid()}] Pymeshfix failed: {e}")
-                
-                verts = smooth_mesh_pyvista(verts, faces, method=mesh_method, 
-                                          n_iter=100, relaxation_factor=0.1)
+                    print(f"[PID {os.getpid()}] Orientation correction failed: {e}")
+
+
+                    
+            #debug_normals(verts, faces)
+
             
             # Calculate volume and surface area
             volume_mm3, surface_area_mm2 = calculate_volume_and_surface_area(verts, faces)

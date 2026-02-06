@@ -20,7 +20,9 @@ def rename_keys(original_json : PathLike, output_json: PathLike, mapping_dict : 
                 number = parts[1] 
                 cleaned_number , side  = number.split("-") if "-" in number else (number, "")
                 print(cleaned_number)
-                final_side = "_" + side.upper() 
+                final_side = ""
+                if side: 
+                    final_side = "_" + side.upper() 
                 suffix = "_".join(parts[2:]) if len(parts) > 2 else ""
                 new_name = mapping_dict.get(cleaned_number, cleaned_number).replace('.nii.gz', '')
                 print(f"New name: {new_name}")

@@ -46,7 +46,7 @@ def safe_copy(src_dst : Tuple[str, str]):
 
 
 def DICOM_splitter(path : str | Path , max_workers : int = 32, use_only_name : bool = True):
-    """Splits a potentially direcroty of Dicom files into nicely named directory one for each scan/document . """
+    """Splits a potentially directory of Dicom files into nicely named directory one for each scan/document . """
     p = Path(path)
 
     sort_dir = p.parent / 'sortiert'
@@ -66,7 +66,7 @@ def DICOM_splitter(path : str | Path , max_workers : int = 32, use_only_name : b
     needed_tags = [
         "PatientID",
         "PatientName",
-        "Modality",
+        "StudyDescription",
         "SeriesDescription",
         "SeriesNumber"]
 
@@ -94,16 +94,18 @@ def DICOM_splitter(path : str | Path , max_workers : int = 32, use_only_name : b
             pname = getattr(dcm, "PatientName", "UnknownName")
             sdesc = getattr(dcm, "SeriesDescription", "UnknownSeries")
             snum = getattr(dcm, "SeriesNumber", 0)
+            stdesc = getattr(dcm, "StudyDescription")
 
             pid = clean_string(str(pid))
             pname = clean_string(str(pname))
             sdesc = clean_string(str(sdesc))
             snum = str(snum)
-
+            stdesc = clean_string(str(stdesc)
+                                  )
             if use_only_name:
-                folder = sort_dir / f"{pname}_{pname}_Series{snum}_{sdesc}"
+                folder = sort_dir / f"{pname}_{pname}_Series{snum}@{stdesc}_{sdesc}"
             else:
-                folder = sort_dir / f"{pid}_{pname}_Series{snum}_{sdesc}"
+                folder = sort_dir / f"{pid}_{pname}_Series{snum}@{stdesc}_{sdesc}"
 
             # Create folder once
             if folder not in known_dirs:
