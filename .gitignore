@@ -8,3 +8,7 @@ nii_to_stl_final.py
 train_all_folds.ps1
 segmentation_report.html
 pyrightconfig.json
+.env
+__pycache__/
+*.py[cod]
+*$py.class

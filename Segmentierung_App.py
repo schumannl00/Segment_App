@@ -9,6 +9,7 @@ import os
 import re
 import sys
 import json
+from dotenv import load_dotenv
 import pathlib
 from pathlib import Path
 import numpy as np
@@ -35,6 +36,7 @@ import shutil
 from cutting import masking, zcut, cut_volume
 from DICOMtoNIFTI import raw_data_to_nifti_parallel, nifti_renamer
 from modifier import  stl_renamer_with_lut
+from utils.mailing import send_mail
 import ttkbootstrap as tb
 from ttkbootstrap.constants import *
 import logging
@@ -51,7 +53,7 @@ from typing import TypedDict, List, Optional, Union, Dict, Any, Set
 # pyright: reportWildcardImportFromLibrary= false
 # pyright: reportCallIssue = false 
 
-
+load_dotenv()
 
 AppParameters = TypedDict('AppParameters', {
     "Input Path": str,
@@ -78,7 +80,8 @@ AppParameters = TypedDict('AppParameters', {
     "remove_islands": bool,
     "name_only": bool,
     "nifti_input": bool,
-    "run_analytics": bool
+    "run_analytics": bool, 
+    #"mail" : str
 }, total=True)
 
 # Default segment parameters -  smoothing for labelmap just removes salt-pepper noise, taubin maintains volume with  light smoothing-params to remove some steps\artifacts 
@@ -736,6 +739,7 @@ class ParameterGUI:
 
     @gui_log_output(get_log_dir_from_args=lambda s, params: Path(params["Input Path"]).parent / "logs")
     def process_data(self, params : AppParameters):
+        mail = "example@gmail.com" #params["mail"]
         """Process the input data using the parameters from the GUI"""
         try:
             
@@ -760,6 +764,9 @@ class ParameterGUI:
             nifti_input = params["nifti_input"]
             analytics = params["run_analytics"]
             used_lps = "LPS" if params["used_lps"] else "RAS"
+             # will be replaced with a proper submit entry 
+            
+            
             # Ensure output directories exist
             os.makedirs(stl_output_path, exist_ok=True)
             os.makedirs(labelmap_output_path, exist_ok=True)
@@ -987,11 +994,17 @@ class ParameterGUI:
             
             self.progress_queue.put(ProgressEvent(100, "Processing complete!", completed=True))
             
+            
+            if mail: 
+                send_mail(mail, "System Message: nnUNet Script successfull", "nnUNet script finished without errors")
             return True
             
         except Exception as e:
             messagebox.showerror("Error", f"An error occurred during processing: {str(e)}")
             self.status_var.set(f"Error: {str(e)}")
+            if mail: 
+                error_message = f"The nnUNet script failed.\n\nDetails: {str(e)}"
+                send_mail(mail, "System Message: nnUNet Script falied", error_message)
             return False
         
     def poll_progress_queue(self):
@@ -1074,7 +1087,8 @@ class ParameterGUI:
             'remove_islands' : self.islands_var.get(), 
             'name_only' : self.just_name.get(),
             "nifti_input" : self.input_nifti.get(), 
-            "run_analytics": self.analytics_var.get()
+            "run_analytics": self.analytics_var.get(), 
+            #"mail" : self.mail.get()
         }
 
         # Show summary of parameters

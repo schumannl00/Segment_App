@@ -190,7 +190,7 @@ def process_single_file(file_info : Tuple[str, str, str | int ], segment_params 
                     trimesh.repair.fix_inversion(t_mesh)
                     
                     verts, faces = t_mesh.vertices, t_mesh.faces
-                    # --- CRITICAL FIX END ---
+                   
 
                     # 4. Light post-repair smoothing (n=50) to remove pymeshfix artifacts
                     verts = smooth_mesh_pyvista(verts, faces, method=mesh_method, 
