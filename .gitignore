@@ -12,3 +12,5 @@ pyrightconfig.json
 __pycache__/
 *.py[cod]
 *$py.class
+continue_single_fold.ps1
+train_all_lora.ps1

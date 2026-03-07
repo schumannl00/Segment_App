@@ -21,7 +21,7 @@ def send_mail(receiver_email, subject, body):
             server.starttls()
             server.login(sender_email, password)
             server.send_message(msg) # Use send_message, not sendmail
-            print("Email sent and verified!")
+            print(f"Email sent to {receiver_email} and verified!")
     except Exception as e:
         print(f"Error: {e}")
 

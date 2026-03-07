@@ -104,6 +104,7 @@ def cut_volume(
     p = Path(nii_path)
     out_path = Path(destination_dir)/ f"{p.stem}_{localiser}{''.join(p.suffixes)}"
     img = Nifti1Image(roi, affine=affine)
+    print(img.shape)
     save(img, str(out_path))
 
     if not keep_original:
@@ -123,7 +124,7 @@ def sep(nii_path : PathLike, x_cut : int,  destination_dir : PathLike ):
         upper=(x_cut, None, None),
         keep_original=True,
         destination_dir= destination_dir,
-        localiser="right"
+        localiser="left"
     )
     print("right done")
     # Left half (array right → anatomy left)
@@ -133,7 +134,7 @@ def sep(nii_path : PathLike, x_cut : int,  destination_dir : PathLike ):
         upper=(None, None, None),
         keep_original=True,
         destination_dir= destination_dir,
-        localiser="left"
+        localiser="right"
     )
     print("finished")
 
@@ -190,4 +191,5 @@ def masking(nii_path):
 
 
 if __name__ == "__main__":
-    cut_volume(r"E:\becken2710\NIFTI\Bck_001_0000.nii.gz", lower = (30, 20, 20), upper = (70, 70, 90), keep_original= True, destination_dir= r"E:\becken2710\NIFTI\cut_test", percents_given= True,) 
+    #sep(r"E:\new cases pat\input\nifti\6118927_Hendrich^Karina_BBA 1.5mm_x, iDose (3).nii.gz", x_cut = 245, destination_dir=r"E:\new cases pat\input\nifti_split")
+    cut_volume(r"E:\test_femur\input\4295737_Krebs^Helga_BBA 1.5mm_x, iDose (3).nii.gz", lower = (None, None, 600), upper = (None, None, 1200), keep_original=True, destination_dir=r"E:\test_femur\input")

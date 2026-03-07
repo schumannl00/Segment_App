@@ -115,7 +115,7 @@ class ParameterGUI:
     def __init__(self, root):
         self.root = root
         self.root.title("Parameter Input GUI for nnUNet segmentation")
-        self.root.geometry("1300x750")
+        self.root.geometry("1300x800")
         self.style = tb.Style(theme='superhero') 
          # Create a queue for thread communication
         self.progress_queue = queue.Queue()
@@ -264,7 +264,7 @@ class ParameterGUI:
         self.config_combobox.grid(row=2, column=1, sticky=tk.W, padx = 5, pady = 5)
 
         # Row 5: Folds (check boxes)
-        ttk.Label(config_group_frame, text="Folds:").grid(row=3, column=0, sticky=tk.W, pady=(0, 10))
+        tb.Label(config_group_frame, text="Folds:").grid(row=3, column=0, sticky=tk.W, pady=(0, 10))
         self.folds_frame = tb.Frame(config_group_frame)
         self.folds_frame.grid(row=3, column=1, sticky=EW, pady=10, padx = 5)
         self.folds_var = tk.StringVar(value="0,1,2,3,4")  # Default value of 5 folds
@@ -279,7 +279,15 @@ class ParameterGUI:
         self.select_all_button.grid(row=1, column=0, columnspan=2, padx=15, pady=5)
         self.deselect_all_button = ttk.Button(self.folds_frame, text= "Deselect all", command=self.deselect_all_folds, style= WARNING )
         self.deselect_all_button.grid(row=1, column=2, columnspan=2, padx=15, pady=5 )
-      
+
+        separator = tb.Separator(config_group_frame, orient="horizontal")
+        separator.grid(row=4, column=0, columnspan=2, sticky="ew", pady=15)
+
+        tb.Label(config_group_frame, text="Mail:").grid(row=5, column=0, sticky=tk.W, pady=(0, 10))
+        self.mail_var = tk.StringVar()
+        self.mail_input = tb.Entry(config_group_frame, textvariable=self.mail_var, width = 40, )
+        self.mail_input.grid(row=5, column = 1, sticky= tk.W, padx=5, pady =5 )
+
        #Processing
     
         preprocessing_frame = tb.LabelFrame(main_frame, text="Processing Options", padding = "10", bootstyle= INFO)
@@ -344,13 +352,14 @@ class ParameterGUI:
             
         )
         self.percent_checkbox.grid(row=7, column=0, columnspan=1, sticky="w", pady=0, padx=(40,10))
+        ToolTip(self.percent_checkbox, text="Use Integers not Decimals for input, so 10 instead of 0.1.", bootstyle="warning")
+
 
         self.LPS_checkbox = tb.Checkbutton(
             preprocessing_frame, 
             text="Use LPS Coordinates to cut.", 
             variable=self.used_lps, 
-            state="disabled" 
-            
+            state="disabled"  
         )
         self.LPS_checkbox.grid(row=8, column=0, columnspan=1, sticky="w", pady=0, padx=(40,10))
         ToolTip(self.LPS_checkbox, text="If you used e.g. MicroDicom to check the images. They are in LPS so X and Y are flipped for our case. It handles the conversion. Ignore the other help statement as now X and Y are flipped.", delay=200, bootstyle="info", position="bottom")
@@ -540,6 +549,7 @@ class ParameterGUI:
             # Update the menubutton display text
             self.update_menubutton_text()
             self.check_filter_activity()
+
     def toggle_cut_inputs(self):
         """Enable or disable all cutting inputs based on the main checkbox."""
         # Determine state based on the checkbox
@@ -739,7 +749,21 @@ class ParameterGUI:
 
     @gui_log_output(get_log_dir_from_args=lambda s, params: Path(params["Input Path"]).parent / "logs")
     def process_data(self, params : AppParameters):
-        mail = "example@gmail.com" #params["mail"]
+        # just fetch mail first so if stuff goes wrong in the try directly it is at least there for notification, also internal so no hard regex check
+        raw_mail = params["mail"].strip().lower()
+
+        if raw_mail:
+            if "@" not in raw_mail:
+                # Automatically append company domain if they forgot it
+                mail = f"{raw_mail}@zesbo.de"
+            else:
+                mail = raw_mail
+        else:
+            mail = None
+        print(f"Sending Mail to {mail} if Inference is successful or fails.")
+
+
+
         """Process the input data using the parameters from the GUI"""
         try:
             
@@ -864,7 +888,9 @@ class ParameterGUI:
             self.progress_queue.put(ProgressEvent(50, "Setting up nnUNet predictor..."))
             selected_id = params["ID"]
             configuration = params["Configuration"]
-            folds = params["Folds"]
+            folds = params["Folds"] 
+            if not folds: 
+                folds = [0,]
             print(torch.device('cuda' if torch.cuda.is_available() else 'cpu'))
             # Create the nnUNet predictor with the specified parameters
             predictor = nnUNetPredictor(
@@ -881,7 +907,7 @@ class ParameterGUI:
                 predictor = create_lora_predictor(predictor)
                 print("Using LoRA model for segmentation.")
 
-            if selected_id in ("117", "118"):
+            if selected_id in ("217", "118"):
                 lowres_path = Path(input_path.parent) / 'label_lowres'
                 os.makedirs(Path(input_path.parent) / 'label_lowres', exist_ok=True)
                 print(f"Running cascade segemntation for ID {selected_id}" )
@@ -909,12 +935,12 @@ class ParameterGUI:
                 if selected_id == "118":
                     predictor.initialize_from_trained_model_folder(
                     join(nnUNet_results, id_dict[selected_id]['Path_to_results']['3d_cascade_fullres']),
-                    use_folds=(0,1,2,3),
+                    use_folds=folds,
                     checkpoint_name="checkpoint_final.pth",)
                 else: 
                      predictor.initialize_from_trained_model_folder(
                     join(nnUNet_results, id_dict[selected_id]['Path_to_results']['3d_cascade_fullres']),
-                    use_folds=(0,),
+                    use_folds=(0,1),
                     checkpoint_name="checkpoint_final.pth",)
     
                 # Run prediction on the input data
@@ -980,8 +1006,11 @@ class ParameterGUI:
                 stats_dir = Path(input_path.parent) / "HU_Analytics"
                 calculate_hu_stats(inference_path, labelmap_output_path, file_mapping, stats_dir, id= selected_id, labels_dict= labels_dict, number_to_name_dict= reverse_mapping_number, stl_metadata_path=cleaned_metapath)
 
+            if mail: 
+                send_mail(mail, "System Message: nnUNet Script successfull", "nnUNet script finished without errors")
             
-            
+            self.progress_queue.put(ProgressEvent(100, "Processing complete!"))
+
             case_count = sum(1 for x in Path(stl_output_path).iterdir() if x.is_dir())
 
             if case_count >= 10:
@@ -992,16 +1021,17 @@ class ParameterGUI:
             else:
                 print(f"Only {case_count} cases processed. Skipping dashboard launch.")
             
-            self.progress_queue.put(ProgressEvent(100, "Processing complete!", completed=True))
+            self.progress_queue.put(ProgressEvent(100, "Dashboard up!", completed=True))
+          
             
-            
-            if mail: 
-                send_mail(mail, "System Message: nnUNet Script successfull", "nnUNet script finished without errors")
             return True
+            
+            
             
         except Exception as e:
             messagebox.showerror("Error", f"An error occurred during processing: {str(e)}")
             self.status_var.set(f"Error: {str(e)}")
+
             if mail: 
                 error_message = f"The nnUNet script failed.\n\nDetails: {str(e)}"
                 send_mail(mail, "System Message: nnUNet Script falied", error_message)
@@ -1056,9 +1086,10 @@ class ParameterGUI:
             else:
                 # User clicked No, so we exit
                 return
+        selected_folds = [i for var, i in self.folds_checkbuttons if var.get()]
 
-        if not self.input_path.get()  or not self.id_var.get():
-            messagebox.showerror("Error", "Input path and ID are required")
+        if not self.input_path.get()  or not self.id_var.get() or not selected_folds:
+            messagebox.showerror("Error", "Input path, ID and entries in fold are required")
             return
 
         # Collect parameters
@@ -1071,7 +1102,7 @@ class ParameterGUI:
             "Use Default Indicators": self.use_default_indicators.get(),
             "ID": self.id_var.get(),
             "Configuration": self.config_var.get(),
-            "Folds": [i for var, i in self.folds_checkbuttons if var.get()],
+            "Folds": selected_folds,
             'Split' : self.split_nifti_var.get(),
             'cut_enabled': self.enable_cut.get(),
             'lower_x': self.lower_x.get(),
@@ -1088,7 +1119,7 @@ class ParameterGUI:
             'name_only' : self.just_name.get(),
             "nifti_input" : self.input_nifti.get(), 
             "run_analytics": self.analytics_var.get(), 
-            #"mail" : self.mail.get()
+            "mail" : self.mail_var.get()
         }
 
         # Show summary of parameters

@@ -455,4 +455,4 @@ if __name__ == "__main__":
     from multiprocessing import freeze_support
     freeze_support()  # This is needed for Windows
     # Your function call here
-    raw_data_to_nifti_parallel(r"C:\Users\schum\Downloads\Covid Scans\Covid Scans\Subject (1)\test", use_default=False, max_workers=8, use_only_name=False, scans_indicators=["Lung 1.5",])
+    raw_data_to_nifti_parallel(r"E:\new training cases testing\final\input", use_default=True, max_workers=14, use_only_name=True)
