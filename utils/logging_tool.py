@@ -96,7 +96,7 @@ def gui_log_output(default_log_dir="logs", per_run=True, capture_stderr=True, ge
         return wrapper
     return decorator
 
-
+#Problem with nnUNet they map the progress bar to stderr for some reason 
 class TerminalOnlyStdout:
     """
     A context manager to temporarily redirect stdout and stderr to the 

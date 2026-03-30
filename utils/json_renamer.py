@@ -1,5 +1,5 @@
 import json
-from typing import List, Union 
+from typing import Union 
 from pathlib import Path 
 PathLike = Union[str, Path]
 

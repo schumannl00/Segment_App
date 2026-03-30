@@ -18,6 +18,8 @@ import multiprocessing as mp
 from utils.stl_metadata import calculate_volume_and_surface_area, save_metadata_to_json
 from typing import List, Dict, Tuple, Optional, Union, Any, TypedDict
 
+
+# Define a shortcut for types objects
 class SegmentConfig(TypedDict, total=False):
     label: str
     smoothing: float
@@ -25,7 +27,6 @@ class SegmentConfig(TypedDict, total=False):
     mesh_smoothing_iterations: int
     mesh_smoothing_factor: float
 
-# Define a shortcut for types objects
 PathLike = Union[str, Path]
 ProcessResult = Tuple[str, bool, Optional[str], List[Tuple[str, Dict[str, float]]]]
 
@@ -41,7 +42,7 @@ def debug_normals(verts, faces, mag=5.0):
     # 'mag' controls arrow length; 'use_every' prevents clutter
     mesh.plot_normals(mag=mag, faces=True, show_edges=True, use_every=10, color='red')
 
-
+#Here the laplacian smooothing should b e avoided, unless in testing weird edge casing to perform an opening, if binary operning does not work, test laplacian, the shrinkage might do it
 def smooth_mesh_pyvista(vertices : np.ndarray, faces : np.ndarray, method : str ='taubin', n_iter : int =100, relaxation_factor : float =0.1) -> np.ndarray:
     """Smooth a mesh using PyVista's smoothing algorithms."""
     vertices = np.array(vertices, dtype=np.float64)
@@ -86,7 +87,7 @@ def fill_holes_3d(segmentation):
     
     return filled_segmentation.astype(np.uint8)
 
-
+# do not touch this, unless messing with the underlying coordinate system, if stuff looks odd in the stl, this is the palce to fix that 
 def convert_to_LPS(vertices : np.ndarray) -> np.ndarray:
     """Convert vertices to LPS coordinate system."""
     vertices[:, 1] *= -1.0
@@ -94,7 +95,7 @@ def convert_to_LPS(vertices : np.ndarray) -> np.ndarray:
     return vertices
 
 
-def process_single_file(file_info : Tuple[str, str, str | int ], segment_params : Dict[int, SegmentConfig], fill_holes : int =0, use_pymeshfix : bool =True, remove_islands : bool =True) -> ProcessResult:
+def process_single_file(file_info : Tuple[str, str, str | int ], segment_params : Dict[int, SegmentConfig], fill_holes : int = 0, use_pymeshfix : bool = True, remove_islands : bool = True) -> ProcessResult:
     """
     Process a single NIfTI file. This function is designed to be called by multiprocessing.
     
@@ -118,19 +119,19 @@ def process_single_file(file_info : Tuple[str, str, str | int ], segment_params 
         nii_data = nii_img.get_fdata() #type: ignore
         spacing = nii_img.header.get_zooms() #type: ignore
         affine = nii_img.affine #type: ignore
-        orientation = nib.orientations.io_orientation(affine)
-        print(" Image orientation:", orientation)
+        #orientation = nib.orientations.io_orientation(affine)
+        #print(" Image orientation:", orientation)
         for label, params in segment_params.items():
             volume_smoothing = params.get('smoothing', 0.1)
             output_label = params.get('label', f"segment_{label}")
             mesh_method = params.get('mesh_smoothing_method', 'taubin')
-            mesh_iterations = params.get('mesh_smoothing_iterations', 100)
-            mesh_factor = params.get('mesh_smoothing_factor', 0.1)
+            mesh_iterations = params.get('mesh_smoothing_iterations', 100)  #100 seems to be the default value from literature, works in most cases, and going down to 50 does not make a diffrence
+            mesh_factor = params.get('mesh_smoothing_factor', 0.1)  #lower -->  stronger smoothing, it is a low pass band filter 
             
             # Extract binary segment
             binary_segment = (nii_data == int(label))
             segment_voxel_count = np.sum(binary_segment)
-            
+            #This is just for debugging, normally we should get nice ints, but these are our workarounds if something goes wrong in memory 
             if segment_voxel_count == 0:
                 binary_segment = (np.round(nii_data).astype(int) == int(label))
                 segment_voxel_count = np.sum(binary_segment)
@@ -149,22 +150,22 @@ def process_single_file(file_info : Tuple[str, str, str | int ], segment_params 
                 binary_segment = fill_holes_3d(binary_segment)
             
             # Smooth and threshold
-            smoothed_segment = ndimage.gaussian_filter(binary_segment.astype(float), sigma=volume_smoothing)
+            smoothed_segment = ndimage.gaussian_filter(binary_segment.astype(float), sigma=volume_smoothing)  #removes small odd pointy mislabeling, these cause spkies in the stl, which cause probolem in downstream tasks, as it causes exploding gradients 
             binary_smooth = smoothed_segment > 0.5
             
             if np.sum(binary_smooth) == 0:
-                print(f"[PID {os.getpid()}] No voxels after smoothing for label {label}")
+                print(f"[PID {os.getpid()}] No voxels after smoothing for label {label}")  #good thing if it was just a noise spot in multiclass seg
                 continue
             
             # Marching cubes
             try:
-                verts, faces, _, _ = measure.marching_cubes(binary_smooth, level=0.5)
+                verts, faces, _, _ = measure.marching_cubes(binary_smooth, level=0.5)  #seems to align with what 3d slicer does 
                 print(f"[PID {os.getpid()}] Marching cubes: {len(verts)} vertices, {len(faces)} faces")
             except Exception as e:
                 print(f"[PID {os.getpid()}] Marching cubes failed for label {label}: {e}")
                 continue
             
-            # Apply affine transformation
+            # Apply affine transformation. This converts voxel coordinates to world coordinates 
             verts = np.hstack([verts, np.ones((verts.shape[0], 1))])
             verts = (affine @ verts.T).T[:, :3]
             convert_to_LPS(verts)
@@ -205,7 +206,7 @@ def process_single_file(file_info : Tuple[str, str, str | int ], segment_params 
             
             # Calculate volume and surface area
             volume_mm3, surface_area_mm2 = calculate_volume_and_surface_area(verts, faces)
-            print(volume_mm3, surface_area_mm2)
+            #print(volume_mm3, surface_area_mm2)
             simple_name_ = f"{simple_name}_{output_label}"
             metadata_entries.append((simple_name_, {"Mesh_volume_mm3" : volume_mm3, "Surface_Area_mm2": surface_area_mm2}))
             stl_mesh = mesh.Mesh(np.zeros(faces.shape[0], dtype=mesh.Mesh.dtype))

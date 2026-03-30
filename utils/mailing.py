@@ -5,7 +5,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-def send_mail(receiver_email, subject, body):
+def send_mail(receiver_email : str, subject : str , body : str ):
     sender_email = os.getenv("SMTP_EMAIL")
     password = os.getenv("SMTP_PASSWORD")
 

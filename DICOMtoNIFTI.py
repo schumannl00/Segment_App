@@ -12,8 +12,28 @@ from pydicom.errors import InvalidDicomError
 import numpy as np
 import nibabel as nib
 from nibabel.orientations import io_orientation, axcodes2ornt, ornt_transform
-from typing import List, Pattern, Tuple, Set, Dict 
+from typing import List, Pattern, Tuple, Set, Dict, Optional 
+from dataclasses import dataclass, field
+
+
+
 settings. disable_validate_slice_increment()
+
+
+@dataclass
+class NiftiConfig:
+    raw_path: Path
+    scans_indicators: Optional[List[str]] = None
+    group_filter: Optional[str] = None
+    use_default: bool = True
+    max_workers: int = 14
+    use_only_name: bool = True
+    max_workers_dicom: int = 32
+
+    def __post_init__(self):
+        # Convert string path to Path object automatically
+        if isinstance(self.raw_path, str):
+            self.raw_path = Path(self.raw_path)
 
 
 def build_pattern(indicator : str ) -> re.Pattern:
@@ -43,6 +63,20 @@ def safe_copy(src_dst : Tuple[str, str]):
         return True
     except Exception as e:
         return e
+    
+    
+def safe_link(src_dst : Tuple[str, str]):  
+    src, dst = src_dst 
+    try:
+        # We use absolute paths to ensure the link doesn't break
+        # if the script is run from a different working directory
+        os.symlink(os.path.abspath(src), dst)
+        return True
+    except FileExistsError:
+        return True # Or handle as skipped
+    except Exception as e:
+        return e
+    
 
 
 def DICOM_splitter(path : str | Path , max_workers : int = 32, use_only_name : bool = True):
@@ -70,7 +104,7 @@ def DICOM_splitter(path : str | Path , max_workers : int = 32, use_only_name : b
         "SeriesDescription",
         "SeriesNumber"]
 
-    files_to_copy = []
+    files_to_link = []
     known_dirs = set()  # avoid repeated mkdir costs
 
     # -----------------------------
@@ -115,7 +149,7 @@ def DICOM_splitter(path : str | Path , max_workers : int = 32, use_only_name : b
             target = folder / original_file_path.name
 
             if not target.exists():
-                files_to_copy.append((original_file_path, target))
+                files_to_link.append((original_file_path, target))
             else:
                 skipped_files += 1
 
@@ -126,10 +160,10 @@ def DICOM_splitter(path : str | Path , max_workers : int = 32, use_only_name : b
     # ------------------------------------------------------
     # PASS 2: PARALLEL COPY (I/O bound → threads are ideal)
     # ------------------------------------------------------
-    print(f"\nStarting parallel copy of {len(files_to_copy)} files...")
+    print(f"\nStarting parallel copy of {len(files_to_link)} files...")
 
     with ThreadPoolExecutor(max_workers=max_workers) as exe:
-        futures = [exe.submit(safe_copy, pair) for pair in files_to_copy]
+        futures = [exe.submit(safe_link, pair) for pair in files_to_link]
 
         for fut in as_completed(futures):
             result = fut.result()
@@ -188,7 +222,8 @@ def convert_single_series_to_nifti(input_dir_path : str | Path, output_nifti_pat
         return (str(input_dir_path), False, error_msg) # Return input, failure status, error message
 
 # --- Main function using ProcessPoolExecutor ---
-def raw_data_to_nifti_parallel(raw_path : str | Path , scans_indicators : List[str] | None   = None, group_filter : str | None = None, use_default : bool =False, max_workers : int =12, use_only_name : bool =True, max_workers_dicom  : int =32):
+# This uses the partial function above, we use ProcessPool as we need a core per conversion, it is quite compute intense and we have no real io wait time, 12 workers seems to be fine, to even handle the whole body scans, keep 4 real cores, for other processes running in the background  
+def raw_data_to_nifti_parallel(config : NiftiConfig):
     """
     Sorts DICOMs and converts selected series to NIFTI in parallel.
 
@@ -208,16 +243,16 @@ def raw_data_to_nifti_parallel(raw_path : str | Path , scans_indicators : List[s
         max_workers_dicom (int) :  Maximum number of processes to use for DICOM sorting and copying  
     """
     start_time = time.time()
-    p = Path(raw_path)
+    p = Path(config.raw_path)
     if not p.is_dir():
-        print(f"Error: Raw path '{raw_path}' not found or is not a directory.")
+        print(f"Error: Raw path '{config.raw_path}' not found or is not a directory.")
         return
 
     # 1. Sort DICOMs sequentially first
     print("-" * 20)
     print("Step 1: Sorting DICOM files...")
     try:
-        sort_dir, nifti_out_dir = DICOM_splitter(raw_path, max_workers=max_workers_dicom, use_only_name=use_only_name)
+        sort_dir, nifti_out_dir = DICOM_splitter(config.raw_path, max_workers=config.max_workers_dicom, use_only_name=config.use_only_name)
         if not sort_dir or not nifti_out_dir:
              print("DICOM splitting failed to return valid directories.")
              return
@@ -233,31 +268,31 @@ def raw_data_to_nifti_parallel(raw_path : str | Path , scans_indicators : List[s
     tasks = []
     patterns = []
     group_pattern = []
-    if scans_indicators and not use_default:
+    if config.scans_indicators and not config.use_default:
         # Compile regex patterns for faster matching if indicators are provided
         try:
-            patterns = [build_pattern(clean_string(indicator)) for indicator in scans_indicators]
-            print(f"Using scan indicators: {scans_indicators}")
+            patterns = [build_pattern(clean_string(indicator)) for indicator in config.scans_indicators]
+            print(f"Using scan indicators: {config.scans_indicators}")
         except re.error as e:
-            print(f"Error compiling regex for scan indicators: {e}. Please check indicators: {scans_indicators}")
+            print(f"Error compiling regex for scan indicators: {e}. Please check indicators: {config.scans_indicators}")
             return 
-    if group_filter and not use_default:
+    if config.group_filter and not config.use_default:
         try:
-            group_pattern = re.compile(re.escape(group_filter), re.IGNORECASE)
-            print(f"Using group filter: '{group_filter}'")
+            group_pattern = re.compile(re.escape(config.group_filter), re.IGNORECASE)
+            print(f"Using group filter: '{config.group_filter}'")
         except re.error as e:
-            print(f"Error compiling regex for group filter: {e}. Please check filter: {group_filter}")
+            print(f"Error compiling regex for group filter: {e}. Please check filter: {config.group_filter}")
             return
 
     skipped_dirs = []
     dirs_to_convert = []
 
-    for item_name  in os.listdir(sort_dir):
+    for item_name  in os.listdir(sort_dir):  #keep the listdir here, we need the individual name, using iterdir would neeed .name everywhere 
         full_path = sort_dir / item_name
         if full_path.is_dir():
             parts = item_name.split("_")
             should_convert = False
-            if use_default:
+            if config.use_default:
                 should_convert = True
             else: 
                 match_indicator = False
@@ -265,7 +300,7 @@ def raw_data_to_nifti_parallel(raw_path : str | Path , scans_indicators : List[s
 
                 if patterns:
                     if len(parts) >= 4:
-                        series_description_from_name = "_".join(parts[3:])  # The description is everything from the 4th element onwards, joined by underscores
+                        series_description_from_name = "_".join(parts[3:])  # The description is everything from the 4th element onwards, joined by underscores, it was the best solution to mget usuable file names for downstream uses
                         if any(p.search(series_description_from_name) for p in patterns):
                             match_indicator = True
                     elif len(parts) < 4:
@@ -276,7 +311,7 @@ def raw_data_to_nifti_parallel(raw_path : str | Path , scans_indicators : List[s
                     if group_pattern.search(item_name):  #type: ignore 
                         match_group = True
                 
-                # Convert if *either* filter matches (and filters are active)
+                # Convert if *either* filter matches (and filters are active) we do not want both active at the same time 
                 if (patterns and match_indicator) or (group_pattern and match_group):
                     should_convert = True
 
@@ -303,14 +338,14 @@ def raw_data_to_nifti_parallel(raw_path : str | Path , scans_indicators : List[s
     print("-" * 20)
 
     # 3. Execute conversions in parallel
-    print(f"Step 3: Starting parallel conversion using up to {max_workers} processes...")
+    print(f"Step 3: Starting parallel conversion using up to {config.max_workers} processes...")
     results = []
     successful_conversions = 0
     failed_conversions = 0
 
     # Use ProcessPoolExecutor
     # The 'with' statement ensures the pool is properly shut down
-    with concurrent.futures.ProcessPoolExecutor(max_workers=max_workers) as executor:
+    with concurrent.futures.ProcessPoolExecutor(max_workers=config.max_workers) as executor:
         # Submit all tasks. submit returns a Future object.
         future_to_input = {executor.submit(convert_single_series_to_nifti, task[0], task[1]): task[0] for task in tasks}  #this allows for good error handling and matching what files did not work, keep the dict and not use a list here  
 
@@ -458,4 +493,5 @@ if __name__ == "__main__":
     from multiprocessing import freeze_support
     freeze_support()  # This is needed for Windows
     # Your function call here
-    raw_data_to_nifti_parallel(r"E:\new training cases testing\final\input", use_default=True, max_workers=14, use_only_name=True)
+    config = NiftiConfig(r"C:\Users\schum\Desktop\zesbo\test_ank\anke", max_workers= 6, max_workers_dicom=12)
+    raw_data_to_nifti_parallel(config)

@@ -1,312 +1,175 @@
+import os
+import json
+import concurrent.futures
+from pathlib import Path
+
 import nibabel as nib
 import numpy as np
 import pandas as pd
-from scipy import stats # For Skewness and Kurtosis
-from pathlib import Path
-import os
-import concurrent.futures # For parallel execution
-import json
+from scipy import stats
 
-# Define the standard nnUNet single-channel suffix (as determined from context)
-
-
-# Helper function to process a single NIfTI image and mask pair
-def process_single_hu_mask_pair(hu_nii_path : Path | str , labelmap_path: Path | str , original_subject_filename : str, labelmap_filename : str , hu_nii_filename: str, id: int, labels_dict: dict) -> list:
+def process_single_hu_mask_pair(hu_nii_path, labelmap_path, original_subject_filename, labels_dict, task_id):
     """
-    Processes a single image/mask pair, calculates HU statistics, merges mesh data,
-    and computes T-scores for specified bone density labels.
-    """ 
-
-
-    
+    Processes a single image/mask pair and calculates HU statistics.
+    """
     results_list = []
     
     try:
-        # Load NIfTI Image and Mask
-        print(f"Processing: {hu_nii_filename} and {labelmap_filename}")
-        hu_img = nib.load(hu_nii_path) 
-        mask_img = nib.load(labelmap_path)  
+        hu_img = nib.load(hu_nii_path)
+        mask_img = nib.load(labelmap_path)
         
-        hu_data = hu_img.get_fdata() 
-        mask_data = mask_img.get_fdata() 
-        
-        # Voxel size for volume calculation mkn,
-        voxel_volume = np.prod(hu_img.header.get_zooms()[:3]) 
+        # Using get_fdata() is fine, but for large volumes, ensure memory is available
+        hu_data = hu_img.get_fdata()
+        mask_data = mask_img.get_fdata()
         
         if hu_data.shape != mask_data.shape:
-            # This should have been caught during nnUNet prediction, but check for safety
-            raise ValueError(f"Shape mismatch: HU ({hu_data.shape}) vs Mask ({mask_data.shape})")
+            raise ValueError(f"Shape mismatch: HU {hu_data.shape} vs Mask {mask_data.shape}")
 
-        unique_labels = np.unique(mask_data)
-        unique_labels = unique_labels[unique_labels != 0] # Exclude background (0)
-
-        # Extract the simplified nnUNet base name from the labelmap filename
-        nnunet_simple_name = Path(labelmap_filename).stem.split('.')[0]
+        voxel_volume = np.prod(hu_img.header.get_zooms()[:3])
+        unique_labels = np.unique(mask_data).astype(int)
+        unique_labels = unique_labels[unique_labels != 0]
 
         for label in unique_labels:
-            boolean_mask = (mask_data == label)
-            roi_hu_values = hu_data[boolean_mask]
+            roi_hu_values = hu_data[mask_data == label]
 
             if roi_hu_values.size == 0:
-                continue 
-
-            # --- 1. Fast Voxel-based Statistics ---
-            
-            mean_hu = np.mean(roi_hu_values)
-            std_hu = np.std(roi_hu_values)
-            
-            skewness = stats.skew(roi_hu_values)
-            kurtosis = stats.kurtosis(roi_hu_values)
-
+                continue
 
             stats_entry = {
-                'Subject_File': original_subject_filename, 
-                'Label_ID': int(label),
-                'Label_Name': f"{labels_dict.get(id, {}).get(str(int(label)), 'Unknown')}", 
+                'Subject_File': original_subject_filename,
+                'Label_ID': label,
+                'Label_Name': labels_dict.get(str(task_id), {}).get(str(label), 'Unknown'),
                 'Voxel_Count': len(roi_hu_values),
-                'Voxel_Volume_mm3': len(roi_hu_values) * voxel_volume, 
-                'Mean_HU': mean_hu,
-                'StdDev_HU': std_hu,
+                'Voxel_Volume_mm3': len(roi_hu_values) * voxel_volume,
+                'Mean_HU': np.mean(roi_hu_values),
+                'StdDev_HU': np.std(roi_hu_values),
                 'Median_HU': np.median(roi_hu_values),
                 'Min_HU': np.min(roi_hu_values),
                 'Max_HU': np.max(roi_hu_values),
-                'Skewness': skewness,
-                'Kurtosis': kurtosis,
+                'Skewness': stats.skew(roi_hu_values),
+                'Kurtosis': stats.kurtosis(roi_hu_values),
                 '5th_Percentile_HU': np.percentile(roi_hu_values, 5),
-                '95th_Percentile_HU': np.percentile(roi_hu_values, 95), } 
-                
+                '95th_Percentile_HU': np.percentile(roi_hu_values, 95),
+            }
             results_list.append(stats_entry)
             
     except Exception as e:
-        print(f"Error processing pair {labelmap_filename}: {str(e)}")
-        # Return an empty list on failure for aggregation
-        return [] 
+        print(f"Error processing {labelmap_path.name}: {e}")
+        return []
 
     return results_list
 
-# The main function using concurrent futures
-def calculate_hu_stats(inference_path : Path | str , labelmap_output_path : Path | str , file_mapping : dict, output_directory : Path , max_workers :int =12, id : str | None  = None, labels_dict : dict | None  =None, stl_metadata_path : Path | str |  None = None, number_to_name_dict : dict | None  = None) -> bool :
+def calculate_hu_stats(inference_path, labelmap_output_path, file_mapping, output_directory, 
+                       max_workers=8, task_id=None, labels_dict=None, stl_metadata_path=None):
 
-    os.makedirs(output_directory, exist_ok=True)    
-
-    NNUNET_CHANNEL_SUFFIX = "_0000"
- 
-
+    output_directory = Path(output_directory)
+    output_directory.mkdir(exist_ok=True, parents=True)
+    
+    # Mapping for quick lookup
     num_to_og_map = {info['number']: og_name for og_name, info in file_mapping.items()}
     
     tasks_to_run = []
-    # Create inverted mapping: nnUNet_Base_Name (e.g., 'Leg_001_0000') -> Original_Nii_Filename (e.g., 'PID_PNAME_...')
-    inverted_mapping = {Path(info['new_filename']).name.split('.')[0]: og_name for og_name, info in file_mapping.items()}
     
-    # -------------------------------
-    
-    tasks_to_run = []
-    
-    # 1. Prepare all tasks (collect paths and parameters)
     for labelmap_filename in os.listdir(labelmap_output_path):
-        str_rechts = None 
-        str_links = None 
-        if labelmap_filename.endswith(".nii.gz") or labelmap_filename.endswith(".nii"):
-            
-            labelmap_base_name = Path(labelmap_filename).stem.split('.')[0] 
-            if "-rechts" in labelmap_base_name:
-                clean_label = labelmap_base_name.replace("-rechts", "")
-                str_rechts = "-rechts"
-            elif "-links" in labelmap_base_name: 
-                clean_label = labelmap_base_name.replace("-links", "")
-                str_links = "-links"
-            else: clean_label = labelmap_base_name
-            
-            original_subject_filename = inverted_mapping.get(clean_label + NNUNET_CHANNEL_SUFFIX)
-            
-            if not original_subject_filename: continue
+        if not (labelmap_filename.endswith(".nii.gz") or labelmap_filename.endswith(".nii")):
+            continue
 
-            new_file_info = file_mapping.get(original_subject_filename)
-            if not new_file_info: continue
-            
-            nnunet_simple_name = Path(new_file_info['new_filename']).stem.split('.')[0]
-            print(nnunet_simple_name)
-            # Construct the HU filename by appending the channel suffix
-            hu_nii_filename = f"{nnunet_simple_name}.nii.gz"
-            
-            hu_nii_path = Path(inference_path) / hu_nii_filename
-            labelmap_path = Path(labelmap_output_path) / labelmap_filename
-            
-            if not hu_nii_path.exists(): 
-                print(f"Warning: Missing HU file {hu_nii_filename} for mask {labelmap_filename}. Skipping.")
-                continue
-            try:
-                file_num = Path(labelmap_filename).stem.split('.')[0].split('_')[-1]
-                if str_links: 
-                    file_num = file_num.split("-")[0]
-                if str_rechts: 
-                    file_num = file_num.split("-")[0]
-            except IndexError:
-                continue
-   
-            original_subject_filename = num_to_og_map.get(file_num).split('.')[0] #type: ignore
-            if str_rechts: 
-                original_subject_filename += "_RECHTS"
-            if str_links: 
-                original_subject_filename += "_LINKS"
-            
-            # Append task parameters
-            tasks_to_run.append((hu_nii_path, labelmap_path, original_subject_filename, labelmap_filename, hu_nii_filename, id, labels_dict))
-
-    print(f"Prepared {len(tasks_to_run)} pairs for parallel HU statistics calculation.")
-
-    # 2. Execute in parallel using ThreadPoolExecutor
-    aggregated_results = []
-    
-    with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
-        future_to_task = {
-            executor.submit(process_single_hu_mask_pair, *task): task[2] for task in tasks_to_run
-        }
+        labelmap_path = Path(labelmap_output_path) / labelmap_filename
+        stem = labelmap_path.name.split('.')[0] # Handles .nii.gz better
         
-        for future in concurrent.futures.as_completed(future_to_task):
-            original_name = future_to_task[future]
-            try:
-                results_from_task = future.result() 
-                aggregated_results.extend(results_from_task)
-            except Exception as exc:
-                print(f"Parallel task for {original_name} failed: {exc}")
+        # Detect Side
+        side_suffix = ""
+        if "-rechts" in stem:
+            side_suffix = "_RECHTS"
+            clean_stem = stem.replace("-rechts", "")
+        elif "-links" in stem:
+            side_suffix = "_LINKS"
+            clean_stem = stem.replace("-links", "")
+        else:
+            clean_stem = stem
 
+        # Extract ID 
+        try:
+            file_num = clean_stem.split('_')[-1]
+            original_subject_base = num_to_og_map.get(file_num)
+            
+            if not original_subject_base:
+                continue
+
+            subject_display_name = Path(original_subject_base).name.split('.')[0] + side_suffix
+            
+            # Construct HU path (Matching nnUNet naming convention)
+            hu_nii_filename = f"{clean_stem}_0000.nii.gz"
+            hu_nii_path = Path(inference_path) / hu_nii_filename
+            
+            if hu_nii_path.exists():
+                tasks_to_run.append((
+                    hu_nii_path, labelmap_path, subject_display_name, labels_dict, task_id
+                ))
+            else:
+                print(f"Warning: HU file {hu_nii_filename} not found.")
+                
+        except (IndexError, AttributeError):
+            continue
+
+    print(f"Executing {len(tasks_to_run)} tasks...")
+
+    aggregated_results = []
+    # ProcessPoolExecutor is generally better for heavy Numpy/Nibabel operations
+    with concurrent.futures.ProcessPoolExecutor(max_workers=max_workers) as executor:
+        futures = [executor.submit(process_single_hu_mask_pair, *t) for t in tasks_to_run]
+        for future in concurrent.futures.as_completed(futures):
+            aggregated_results.extend(future.result())
 
     if not aggregated_results:
-        print("No statistics calculated. Check file paths and data integrity.")
         return False
 
-    # 3. Create DataFrame and export
     df = pd.DataFrame(aggregated_results)
-    
-    # Define a consistent column order (Final structure)
-    column_order = [
-        'Subject_File',  'Label_ID', 'Label_Name', 
-        'Voxel_Count', 'Voxel_Volume_mm3', 
-        'Mean_HU', 'StdDev_HU', 'Median_HU', 'Min_HU', 'Max_HU', 
-        'Skewness', 'Kurtosis', 
-        '5th_Percentile_HU', '95th_Percentile_HU', 
 
-    ]
-    df = df[column_order]
-
-    # Assuming stl_metadata_path is passed to the function
+    # STL Merging Logic
     if stl_metadata_path and Path(stl_metadata_path).exists():
         with open(stl_metadata_path, 'r') as f:
             stl_data = json.load(f)
-
-    # 1. Process JSON into a list for easy DataFrame creation
-    stl_records = []
-    for entry_name, metrics in stl_data.items():
-        # entry_name is likely "Scan_01_L1"
-        parts = entry_name.split('_')
-        label_name = parts[-1]               
-        subject_name = "_".join(parts[:-1])  
-
-
-        stl_records.append({
-            'Subject_File': subject_name,
-            'Label_Name': label_name,
-            'Mesh_Volume_mm3': metrics.get('Mesh_volume_mm3'),
-            'Surface_Area_mm2': metrics.get('Surface_Area_mm2')
-        })
-
-    stl_df = pd.DataFrame(stl_records)
-
-    
-    # We use 'left' join to keep all HU rows even if STL data is missing
-    df = pd.merge(df, stl_df, on=['Subject_File', 'Label_Name'], how='left')
-
-    
-    insertion_index = column_order.index('Voxel_Volume_mm3') + 1
-
-
-    new_columns = ['Mesh_Volume_mm3', 'Surface_Area_mm2']
-    column_order = column_order[:insertion_index] + new_columns + column_order[insertion_index:]
-
-    df = df[column_order]
-
-
-    df_formatted = df.round({'Mesh_Volume_mm3': 3,  # Example: 3 decimal places for volume
-    'Surface_Area_mm2': 3,
-    'Voxel_Volume_mm3': 3,  # Example: 3 decimal places for volume
-    'Mean_HU': 4,
-    'StdDev_HU': 4,
-    'Median_HU': 4,
-    'Skewness': 4,
-    'Kurtosis': 4,
-    '5th_Percentile_HU': 4,
-    '95th_Percentile_HU': 4,
-    })
-    
-    output_filename = f"HU_Statistics_Report_{pd.Timestamp.now().strftime('%Y%m%d_%H%M%S')}"
-    
-    Path(output_directory).mkdir(exist_ok=True, parents=True)
-
-    csv_path = Path(output_directory) / f"{output_filename}.csv"
-    df_formatted.to_csv(csv_path, index=False)
-    print(f"HU statistics saved to: {csv_path}")
-
-    excel_path = Path(output_directory) / f"{output_filename}.xlsx"
-
-    
-    with pd.ExcelWriter(excel_path, engine='xlsxwriter') as writer:
-        df_formatted.to_excel(writer, sheet_name='Sheet1', index=False)
-
-      
-        workbook  = writer.book
-        worksheet = writer.sheets['Sheet1']
-
         
-        header_format = workbook.add_format({
-            'bold': True,
-            'text_wrap': True,
-            'valign': 'top',
-            'fg_color':"#9BAEE4" , 
-            'border': 1
-        })
+        stl_records = []
+        for key, metrics in stl_data.items():
+            parts = key.split('_')
+            stl_records.append({
+                'Subject_File': "_".join(parts[:-1]),
+                'Label_Name': parts[-1],
+                'Mesh_Volume_mm3': metrics.get('Mesh_volume_mm3'),
+                'Surface_Area_mm2': metrics.get('Surface_Area_mm2')
+            })
+        
+        stl_df = pd.DataFrame(stl_records)
+        df = pd.merge(df, stl_df, on=['Subject_File', 'Label_Name'], how='left')
 
-        # Iterate through each column to find the max width
-        for i, column in enumerate(df_formatted.columns):
-            # Calculate width of column header
-            column_len = len(str(column))
+    # Formatting and Export
+    cols = [
+        'Subject_File', 'Label_ID', 'Label_Name', 'Voxel_Count', 
+        'Voxel_Volume_mm3', 'Mesh_Volume_mm3', 'Surface_Area_mm2',
+        'Mean_HU', 'StdDev_HU', 'Median_HU', 'Min_HU', 'Max_HU', 
+        'Skewness', 'Kurtosis', '5th_Percentile_HU', '95th_Percentile_HU'
+    ]
+    
+    # Filter only columns that actually exist (in case STL merge failed)
+    df = df[[c for c in cols if c in df.columns]]
+    df = df.round(4)
 
-            # Calculate max width of data in that column
-            # (We use map(str) to handle non-string data)
-            max_data_len = df_formatted[column].map(str).map(len).max()
+    timestamp = pd.Timestamp.now().strftime('%Y%m%d_%H%M%S')
+    output_path = output_directory / f"HU_Report_{timestamp}.xlsx"
+    
+    # Excel formatting
+    with pd.ExcelWriter(output_path, engine='xlsxwriter') as writer:
+        df.to_excel(writer, sheet_name='Stats', index=False)
+        workbook = writer.book
+        worksheet = writer.sheets['Stats']
+        header_fmt = workbook.add_format({'bold': True, 'fg_color': '#D7E4BC', 'border': 1})
+        
+        for i, col in enumerate(df.columns):
+            width = max(len(col), df[col].astype(str).map(len).max()) + 2
+            worksheet.set_column(i, i, width)
+            worksheet.write(0, i, col, header_fmt)
 
-            # Set the width to the larger of the two, plus a little padding
-            # If max_data_len is NaN (empty column), default to header length
-            if pd.isna(max_data_len):
-                max_data_len = 0
-                
-            adjusted_width = max(column_len, max_data_len) + 2
-            
-            # Apply the width and the header format
-            worksheet.set_column(i, i, adjusted_width)
-            worksheet.write(0, i, column, header_format)
-
-    print(f"HU statistics saved to: {excel_path}")
+    print(f"Success: {output_path}")
     return True
-
-if __name__ == "__main__":
-    # Example usage (paths would need to be set appropriately)
-    inference_dir = Path(r"E:\fix_orientation\raw\NIFTI")
-    labelmap_dir = Path(r"E:\fix_orientation\raw\label")
-    output_dir = Path(r"E:\fix_orientation\raw\HU_Analytics")
-    
-    # Example file mapping
-    example_file_mapping = {"Anonymous-Female-1975_Anonymous-Female-1975_Series201_1mm-x,-iDose-(3).nii.gz": {
-        "new_filename": "Leg_001_0000.nii.gz",
-        "number": "001"} } 
-
-       
-    
-    labels_dict = { "121": {
-        "1" : "Fibula",
-        "2" : "Patella",
-        "3" : "Tibia", 
-        "4" : "Femur"
-    }}
-    
-    calculate_hu_stats(inference_dir, labelmap_dir, example_file_mapping, output_dir, id="121", labels_dict=labels_dict, stl_metadata_path=r"E:\fix_orientation\raw\stl_metadata_fixed.json")

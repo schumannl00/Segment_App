@@ -36,7 +36,7 @@ from stl import mesh
 from multi_stl import process_directory_parallel
 import shutil
 from cutting import masking, zcut, cut_volume
-from DICOMtoNIFTI import raw_data_to_nifti_parallel, nifti_renamer
+from DICOMtoNIFTI import raw_data_to_nifti_parallel, nifti_renamer, NiftiConfig
 from modifier import  stl_renamer_with_lut
 from utils.mailing import send_mail
 import ttkbootstrap as tb
@@ -83,11 +83,11 @@ AppParameters = TypedDict('AppParameters', {
     "name_only": bool,
     "nifti_input": bool,
     "run_analytics": bool, 
-    #"mail" : str
+    "mail" : str
 }, total=True)
 
 
-EMAIL_REGEX = re.compile(r'^[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+$')
+EMAIL_REGEX = re.compile(r'^[a-zA-Z0-9_.+-]+@([a-zA-Z0-9-]+\.)+[a-zA-Z]{2,}$') #quite robust mail regex pattern
 
 # Default segment parameters -  smoothing for labelmap just removes salt-pepper noise, taubin maintains volume with  light smoothing-params to remove some steps\artifacts 
 default_segment_params = {
@@ -347,7 +347,7 @@ class ParameterGUI:
         )
         enable_checkbox.grid(row=5, column=0, sticky="w", pady=5)
         
-        help_text = (
+        help_text_cutting = (
             "Cropping Guide for (RAS+ System):\n"
             "• X: Lower = Left, Upper = Right\n"
             "• Y: Lower = Back, Upper = Front\n"
@@ -358,7 +358,7 @@ class ParameterGUI:
             "So be aware of what system you used and what you cut by doing so.\n"
             "If using %, 0 is start of image, 100 is end."
         )
-        ToolTip(enable_checkbox, text=help_text, delay=200, bootstyle="info", position= "top" )
+        ToolTip(enable_checkbox, text=help_text_cutting, delay=200, bootstyle="info", position= "top" )
         self.keep_originals_checkbox = tb.Checkbutton(
             preprocessing_frame, 
             text="Keep originals", 
@@ -484,7 +484,7 @@ class ParameterGUI:
             self.indicators_menu.config(text="Scanning for indicators...")
             
             # Start scanning thread
-            scan_thread = threading.Thread(target=self.scan_indicators_thread, args=(path,))
+            scan_thread = threading.Thread(target=self.scan_indicators_thread, args=(path,))  #this prevents UI freeze
             scan_thread.daemon = True
             scan_thread.start()
 
@@ -809,8 +809,8 @@ class ParameterGUI:
             if not nifti_input: 
                 # Step 1: Convert DICOM to NIfTI 
                 self.progress_queue.put(ProgressEvent(10, "Converting DICOM to NIfTI..."))
-                
-                raw_data_to_nifti_parallel(input_path, scans_indicators=scan_indicators, group_filter=group_filter, use_default=use_default, max_workers=14, use_only_name=just_name, max_workers_dicom=32) #change back later to 12 
+                nifti_config =  NiftiConfig(input_path, scan_indicators, group_filter, use_default, use_only_name=just_name)
+                raw_data_to_nifti_parallel(nifti_config) 
                 inference_path = os.path.join(str(input_path.parent),r'NIFTI')
             # Step 2: Process NIfTI files - get files to process
             
@@ -819,9 +819,6 @@ class ParameterGUI:
                 inference_path = input_path
             
             
-           
-            
-                
             if cut_enabled:
                 self.progress_queue.put(ProgressEvent(30, "Processing NIfTI files"))
                 try:
@@ -915,10 +912,15 @@ class ParameterGUI:
                 verbose_preprocessing=False,
                 allow_tqdm=True
             )
+            
+            
+            #add all the ones that used the Lora trainer here, it needs the custom predictor to work 
             if selected_id == "118": 
                 predictor = create_lora_predictor(predictor)
                 print("Using LoRA model for segmentation.")
-
+                
+            
+            #all the cascade runs should go here, 
             if selected_id in ("217", "118"):
                 lowres_path = Path(input_path.parent) / 'label_lowres'
                 os.makedirs(Path(input_path.parent) / 'label_lowres', exist_ok=True)
@@ -973,7 +975,7 @@ class ParameterGUI:
                 print("nnUNet segmentation done.")
            
             else:
-            # Set the model based on the ID and configuration
+                # Set the model based on the ID and configuration
                 predictor.initialize_from_trained_model_folder(
                     join(nnUNet_results, id_dict[selected_id]['Path_to_results'][configuration]),
                     use_folds=folds,
@@ -1013,6 +1015,8 @@ class ParameterGUI:
             reverse_mapping_number = stl_renamer_with_lut(stl_output_path=stl_output_path, file_mapping=file_mapping)
             stl_metadata_path = rename_keys(stl_metadata_path, stl_metadata_path, reverse_mapping_number)
             cleaned_metapath = str(Path(stl_metadata_path).resolve())
+            
+            #this runs the HU analytics as slicer would, just for way more data 
             if analytics:
                 self.progress_queue.put(ProgressEvent(95, "Running HU analytics..."))
                 stats_dir = Path(input_path.parent) / "HU_Analytics"

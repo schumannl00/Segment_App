@@ -22,3 +22,8 @@ for i in range(54,55):
         sitk.WriteImage(coregistered_segmentation_sitk, segmentation_path)
     except: 
         print(f"file with {image_path} does not exist")
+        
+        
+        
+
+    
