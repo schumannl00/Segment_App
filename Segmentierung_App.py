@@ -5,6 +5,8 @@ from tkinter import ttk, filedialog, messagebox, simpledialog
 from tkinterdnd2 import DND_FILES, TkinterDnD
 from ttkbootstrap.scrolled import ScrolledFrame
 from ttkbootstrap.tooltip import ToolTip
+from ttkbootstrap.toast import ToastNotification
+from ttkbootstrap.constants import * 
 import os
 import re
 import sys
@@ -84,6 +86,9 @@ AppParameters = TypedDict('AppParameters', {
     #"mail" : str
 }, total=True)
 
+
+EMAIL_REGEX = re.compile(r'^[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+$')
+
 # Default segment parameters -  smoothing for labelmap just removes salt-pepper noise, taubin maintains volume with  light smoothing-params to remove some steps\artifacts 
 default_segment_params = {
     'smoothing': 1.0, 
@@ -102,6 +107,24 @@ for id_key, labels in labels_dict.items():
             'label': label_name,
             **default_segment_params
         }
+
+
+def process_mail_input(raw_input):
+        clean_input = raw_input.strip().lower()
+        if not clean_input:
+            return None
+        
+        # Auto-append domain if missing
+        if "@" not in clean_input:
+            full_mail = f"{clean_input}@zesbo.de"
+        else:
+            full_mail = clean_input
+            
+        # Final Validation
+        if EMAIL_REGEX.match(full_mail):
+            return full_mail
+        return False
+
 
 class ProgressEvent:
     def __init__(self, value, message=None, error=None, completed=False):
@@ -750,19 +773,7 @@ class ParameterGUI:
     @gui_log_output(get_log_dir_from_args=lambda s, params: Path(params["Input Path"]).parent / "logs")
     def process_data(self, params : AppParameters):
         # just fetch mail first so if stuff goes wrong in the try directly it is at least there for notification, also internal so no hard regex check
-        raw_mail = params["mail"].strip().lower()
-
-        if raw_mail:
-            if "@" not in raw_mail:
-                # Automatically append company domain if they forgot it
-                mail = f"{raw_mail}@zesbo.de"
-            else:
-                mail = raw_mail
-        else:
-            mail = None
-        print(f"Sending Mail to {mail} if Inference is successful or fails.")
-
-
+        
 
         """Process the input data using the parameters from the GUI"""
         try:
@@ -788,6 +799,7 @@ class ParameterGUI:
             nifti_input = params["nifti_input"]
             analytics = params["run_analytics"]
             used_lps = "LPS" if params["used_lps"] else "RAS"
+            mail = params["mail"]
              # will be replaced with a proper submit entry 
             
             
@@ -1091,6 +1103,31 @@ class ParameterGUI:
         if not self.input_path.get()  or not self.id_var.get() or not selected_folds:
             messagebox.showerror("Error", "Input path, ID and entries in fold are required")
             return
+        
+
+        raw_mail = self.mail_var.get()
+        final_email = process_mail_input(raw_mail)
+        if final_email:
+            # Success Toast
+            toast = ToastNotification(
+                title="Email Validated",
+                message=f"Sending Success/ Fail message to: {final_email}",
+                duration=3000,
+                bootstyle=SUCCESS
+            )
+            toast.show_toast()
+        else:
+            # Error Toast
+            toast = ToastNotification(
+                title="Invalid Input",
+                message="Please enter a valid username or email.",
+                duration=3000,
+                bootstyle=DANGER
+            )
+            toast.show_toast()
+
+
+
 
         # Collect parameters
         params : AppParameters = {
@@ -1119,7 +1156,7 @@ class ParameterGUI:
             'name_only' : self.just_name.get(),
             "nifti_input" : self.input_nifti.get(), 
             "run_analytics": self.analytics_var.get(), 
-            "mail" : self.mail_var.get()
+            "mail" : final_email
         }
 
         # Show summary of parameters

@@ -14,7 +14,7 @@ import nibabel as nib
 from nibabel.orientations import io_orientation, axcodes2ornt, ornt_transform
 from typing import List, Pattern, Tuple, Set, Dict 
 settings. disable_validate_slice_increment()
-#rewrote  so no splitting needed anymore, any spaces are replaced by - already 
+
 
 def build_pattern(indicator : str ) -> re.Pattern:
     forbidden_boundary = r"[\w.+\-]"
@@ -25,7 +25,7 @@ def build_pattern(indicator : str ) -> re.Pattern:
 
 
 
-# Precompiled regex
+# Precompiled regex, reduces overhead 
 sanitize_general : re.Pattern = re.compile(r'[\\/*?:"<>|_]')
 sanitize_spaces : re.Pattern = re.compile(r'\s+')
 
@@ -35,7 +35,7 @@ def clean_string(s : str ) -> str:
     s = s.strip().rstrip(".")
     return s or "Unknown"
 
-
+# potentailly move the copy over to a link style, not sure if that might cause problem in windows with massive amount of files 
 def safe_copy(src_dst : Tuple[str, str]):
     src, dst = src_dst
     try:
@@ -105,7 +105,7 @@ def DICOM_splitter(path : str | Path , max_workers : int = 32, use_only_name : b
             if use_only_name:
                 folder = sort_dir / f"{pname}_{pname}_Series{snum}@{stdesc}_{sdesc}"
             else:
-                folder = sort_dir / f"{pid}_{pname}_Series{snum}@{stdesc}_{sdesc}"
+                folder = sort_dir / f"{pid}_{pname}_Series{snum}@{stdesc}_{sdesc}"  #some ids are super annoying, so if the have timecodes etc or are super long, and not needed for identifying, use the double name and clean later 
 
             # Create folder once
             if folder not in known_dirs:
@@ -144,7 +144,7 @@ def DICOM_splitter(path : str | Path , max_workers : int = 32, use_only_name : b
     print("\nDICOM Sorting Summary:")
     print(f"  Copied: {copied_files}")
     print(f"  Skipped: {skipped_files}")
-    print(f"  Errors: {error_files}")
+    print(f"  Errors: {error_files}")  #super unlikely unless storage full, never encountered any in testing so far 
 
     return sort_dir, nifti_out_dir
 
@@ -161,6 +161,8 @@ def convert_single_series_to_nifti(input_dir_path : str | Path, output_nifti_pat
         output_nifti_path.parent.mkdir(exist_ok=True)
         dicom2nifti.dicom_series_to_nifti(str(input_dir_path), str(output_nifti_path), reorient_nifti=True )
 
+
+        # there seems to be no real way to get past the double load if we do not want to rewrite the dicomtonifti source code, so live with the short delay this causes 
         nii = nib.load(str(output_nifti_path)) #type: ignore 
         orig_orient = io_orientation(nii.affine) #type: ignore 
         target_orient = axcodes2ornt(('R', 'A', 'S'))
@@ -168,7 +170,7 @@ def convert_single_series_to_nifti(input_dir_path : str | Path, output_nifti_pat
             transform = ornt_transform(orig_orient, target_orient)
             nii_ras = nii.as_reoriented(transform) #type: ignore 
             nib.save(nii_ras, str(output_nifti_path)) #type: ignore 
-            print(f"Reoriented NIFTI to RAS for: {output_nifti_path.name}")
+            print(f"Reoriented NIFTI to RAS for: {output_nifti_path.name}")    
 
         print(f"Successfully converted: {output_nifti_path.name}")
         return (str(input_dir_path), True, str(output_nifti_path)) 
@@ -196,6 +198,7 @@ def raw_data_to_nifti_parallel(raw_path : str | Path , scans_indicators : List[s
                                            directory name contains one of these
                                            indicators will be converted (unless use_default=True).
                                            Defaults to None.
+        group_filter (str, optional): Just one string for a big group, like a conv kernel for the image (bone/ tissue etc.), will just do a basic substring with that.
         use_default (bool): If True, attempts to convert all series,
                                       ignoring scans_indicators. Defaults to False.
         max_workers (int): Maximum number of processes to use for conversion.
@@ -309,7 +312,7 @@ def raw_data_to_nifti_parallel(raw_path : str | Path , scans_indicators : List[s
     # The 'with' statement ensures the pool is properly shut down
     with concurrent.futures.ProcessPoolExecutor(max_workers=max_workers) as executor:
         # Submit all tasks. submit returns a Future object.
-        future_to_input = {executor.submit(convert_single_series_to_nifti, task[0], task[1]): task[0] for task in tasks}
+        future_to_input = {executor.submit(convert_single_series_to_nifti, task[0], task[1]): task[0] for task in tasks}  #this allows for good error handling and matching what files did not work, keep the dict and not use a list here  
 
         
         for future in concurrent.futures.as_completed(future_to_input):

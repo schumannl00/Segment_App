@@ -199,8 +199,8 @@ def process_single_file(file_info : Tuple[str, str, str | int ], segment_params 
                     print(f"[PID {os.getpid()}] Orientation correction failed: {e}")
 
 
-                    
-            #debug_normals(verts, faces)
+            # uncomment if somethin looks wrong with the normals again, but only for testing, will otherwise stop/ stall the loop 
+            #debug_normals(verts, faces)   
 
             
             # Calculate volume and surface area
@@ -347,7 +347,7 @@ def process_directory_parallel(input_dir : PathLike, output_root_dir : PathLike 
         
         all_results.extend(batch_results)
         
-        # Save checkpoint after each batch
+        # Save checkpoint after each batch, that is the only real point for the batches, delete the checkpoint if rerunning on old data 
         save_checkpoint(checkpoint_file, list(completed_files), all_failed)
         
         # Batch summary
