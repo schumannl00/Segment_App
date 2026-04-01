@@ -1120,6 +1120,17 @@ class ParameterGUI:
                 bootstyle=SUCCESS
             )
             toast.show_toast()
+
+        elif final_email is None and raw_mail.strip() == "":
+            # No email provided, but that's okay
+            final_email = None  # Ensure it's set to None for processing
+            toast = ToastNotification(
+                title="Email Not Provided",
+                message="No email address provided. Proceeding without email notification.",
+                duration=3000,
+                bootstyle=WARNING
+            )
+            toast.show_toast()
         else:
             # Error Toast
             toast = ToastNotification(

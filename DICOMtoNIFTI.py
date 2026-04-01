@@ -68,15 +68,22 @@ def safe_copy(src_dst : Tuple[str, str]):
 def safe_link(src_dst : Tuple[str, str]):  
     src, dst = src_dst 
     try:
-        # We use absolute paths to ensure the link doesn't break
-        # if the script is run from a different working directory
-        os.symlink(os.path.abspath(src), dst)
+        src_abs = os.path.abspath(src)
+        dst_abs = os.path.abspath(dst)
+        
+        # Windows Long Path Support: Use the \\?\ prefix if on Windows
+        if os.name == 'nt' and not src_abs.startswith('\\\\?\\'):
+            src_abs = '\\\\?\\' + src_abs
+            dst_abs = '\\\\?\\' + dst_abs
+
+        # Use hard links instead of symlinks to avoid Admin permission issues
+        os.link(src_abs, dst_abs)
         return True
     except FileExistsError:
-        return True # Or handle as skipped
+        return True 
     except Exception as e:
+        print(f"Link Error: {e}")
         return e
-    
 
 
 def DICOM_splitter(path : str | Path , max_workers : int = 32, use_only_name : bool = True):
@@ -128,14 +135,13 @@ def DICOM_splitter(path : str | Path , max_workers : int = 32, use_only_name : b
             pname = getattr(dcm, "PatientName", "UnknownName")
             sdesc = getattr(dcm, "SeriesDescription", "UnknownSeries")
             snum = getattr(dcm, "SeriesNumber", 0)
-            stdesc = getattr(dcm, "StudyDescription")
+            stdesc = getattr(dcm, "StudyDescription", "unknownStudy")
 
             pid = clean_string(str(pid))
             pname = clean_string(str(pname))
             sdesc = clean_string(str(sdesc))
             snum = str(snum)
-            stdesc = clean_string(str(stdesc)
-                                  )
+            stdesc = clean_string(str(stdesc))
             if use_only_name:
                 folder = sort_dir / f"{pname}_{pname}_Series{snum}@{stdesc}_{sdesc}"
             else:
