@@ -1,0 +1,23 @@
+{ "114": {
+        "body_part": "Schulter",
+        "Path_to_results": {
+            "3d_fullres": "Dataset114_Schulter/nnUNetTrainer__nnUNetPlans__3d_fullres"
+        },
+        "configurations": [
+            "3d_fullres"
+        ],
+        "prefix": "Sch_",
+        "suffix": "_0000"
+    },
+    "116": {
+        "body_part": "Becken",
+        "Path_to_results": {
+            "3d_fullres": "Dataset116_Becken/nnUNetTrainer__nnUNetPlans__3d_fullres"
+        },
+        "configurations": [
+            "3d_fullres"
+        ],
+        "prefix": "Bck_",
+        "suffix": "_0000"
+    }
+}

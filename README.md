@@ -6,9 +6,10 @@ We developed it as an on-site tool that requires no technical background. It is 
 
 This tool provides an end-to-end pipeline for medical image segmentation:
 1. DICOM to NIfTI conversion
-2. Optional processing ("splitting" into left/right, Z-axis cutting, mesh-repair)
+2. Optional processing ("splitting" into left/right, cutting, mesh-repair)
 3. nnUNet-based automatic segmentation
 4. 3D model generation in STL format
+5. Mail notification support 
 
 The application is designed to be user-friendly with a GUI interface that supports drag-and-drop functionality, customizable segmentation parameters, and batch processing capabilities.
 
@@ -21,9 +22,10 @@ The application is designed to be user-friendly with a GUI interface that suppor
   - Shoulder
   - Pelvis
   - Whole leg
-- **Pre-processing options**:
+  - Spine 
+- **Processing options**:
   - Left/right splitting for bilateral structures
-  - Z-axis cutting for region-of-interest focus
+  - Cutting for region-of-interest focus (in RAS, LPS and percentage based)
   - Multi-patient folder processing
 - **Customizable smoothing parameters** for each anatomical structure
 - **STL export** with adjustable smoothing parameters
@@ -72,11 +74,7 @@ Than download all the remaining parts from requirements.txt (pip install -r requ
 
 5. Select configuration and folds
 
-6. Optional processing:
-   - Split NIFTIs into left and right
-   - Cut along Z direction (specify Z-range)
-   - Process multiple patient subfolders
-   - Mesh fix (fix + removal of small fragments still combined will be split in the next push) 
+6. Optional processing
 
 7. Click "Submit" to start processing
 
@@ -126,16 +124,13 @@ labels_dict: {
     },} 
 ## Explanation for certain choices
 
-The filtering via the Series Description is optional. It will just get Exceptions for files it cannot transform, which usually are exam summaries or dosis infos. If there are a lot of scans for a patient, it is still advised to use the one with the smallest slice thickness, as it will reduce steps in the stls. 
-In "splitting" into left and right we don't separate the files into left and right, but mask the undesired side. We apply it to the labelmaps as the background value is 0 for every file. This avoids alignment issues in the stl and allows the user to use one-sided labelmaps for other applications if needed. 
+The filtering via the Series Description is optional. It will just get Exceptions for files it cannot transform, which usually are exam summaries or dosis infos. If there are a lot of scans for a patient, it is still advised to use the one with the smallest slice thickness, as it will reduce steps in the stls, will take longer if it does not match the training config due to heavy sampling. 
+In "splitting" into left and right we don't separate the files into left and right, but mask the undesired side. We apply it to the labelmaps as the background value is 0 for every file. This avoids alignment issues in the stl and allows the user to use one-sided labelmaps for other applications if needed and makes HU analysis easier. 
 I chose both labelmap smoothing as well as mesh smoothing. The first to remove minor artifacts from the segmentation, like a stray misclassed voxel. The latter is to remove the step artifacts that can show up in the conversion using taubin smoothing ensuring next to no volume change. I compared the resulting STLs to ones created from the segmentation maps using 3DSlicers built-in conversion and there is no meaningful difference (they might use a similar pipeline). Still be careful to not oversmooth, especially the Gaussian smoothing.
 As there is no medical certification, this should be only used for research and not for clinical use. 
 
 ### Troubleshooting
-There are still some edge cases where the filtering does not work. Cannot figure out where the problem lies, as it affects some of the harmless-looking ones. But Series Descriptions are usually a mess anyway, with varying conventions and no consistency. So do not filter if not needed. 
-Also make sure to adapt the target_dir_name in Dicom_splitter of multiprocessed.py, some scans have horrendous ids(including timecodes etc., maybe clean those with the metadata editer).    
-
-
+No big problems as of now. 
 
 ### Common Issues
 

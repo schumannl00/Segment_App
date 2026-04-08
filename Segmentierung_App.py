@@ -946,33 +946,32 @@ class ParameterGUI:
                     folder_with_segs_from_prev_stage=None, num_parts=1, part_id=0)
                 print("Done with lowres")
 
-                if selected_id == "118":
+                if configuration == "3d_fullres_cascade":
                     predictor.initialize_from_trained_model_folder(
                     join(nnUNet_results, id_dict[selected_id]['Path_to_results']['3d_cascade_fullres']),
                     use_folds=folds,
                     checkpoint_name="checkpoint_final.pth",)
-                else: 
-                     predictor.initialize_from_trained_model_folder(
-                    join(nnUNet_results, id_dict[selected_id]['Path_to_results']['3d_cascade_fullres']),
-                    use_folds=(0,1),
-                    checkpoint_name="checkpoint_final.pth",)
-    
-                # Run prediction on the input data
-            
-                self.progress_queue.put(ProgressEvent(60, "Running segmentation for fullres cascade..."))
-                print("Starting nnU-Net prediction. Status updates will be suppressed from the log.")
-                with TerminalOnlyStdout():
-                    predictor.predict_from_files(
-                        str(inference_path), 
-                        str(labelmap_output_path),
-                        save_probabilities=False,
-                        overwrite=False,
-                        num_processes_preprocessing=4,
-                        num_processes_segmentation_export=4,
-                        folder_with_segs_from_prev_stage=str(lowres_path), num_parts=1, part_id=0)
-                    
-
+                
+        
+                    # Run prediction on the input data
+                
+                    self.progress_queue.put(ProgressEvent(70, "Running segmentation for fullres cascade..."))
+                    print("Starting nnU-Net prediction. Status updates will be suppressed from the log.")
+                    with TerminalOnlyStdout():
+                        predictor.predict_from_files(
+                            str(inference_path), 
+                            str(labelmap_output_path),
+                            save_probabilities=False,
+                            overwrite=False,
+                            num_processes_preprocessing=4,
+                            num_processes_segmentation_export=4,
+                            folder_with_segs_from_prev_stage=str(lowres_path), num_parts=1, part_id=0)
+                    print("Done with cascade")
+                     
                 print("nnUNet segmentation done.")
+
+                if configuration == "3d_lowres":
+                    labelmap_output_path = lowres_path
            
             else:
                 # Set the model based on the ID and configuration
@@ -1020,7 +1019,7 @@ class ParameterGUI:
             if analytics:
                 self.progress_queue.put(ProgressEvent(95, "Running HU analytics..."))
                 stats_dir = Path(input_path.parent) / "HU_Analytics"
-                calculate_hu_stats(inference_path, labelmap_output_path, file_mapping, stats_dir, id= selected_id, labels_dict= labels_dict, number_to_name_dict= reverse_mapping_number, stl_metadata_path=cleaned_metapath)
+                calculate_hu_stats(inference_path, labelmap_output_path, file_mapping, stats_dir, task_id= selected_id, labels_dict= labels_dict, stl_metadata_path=cleaned_metapath)
 
             if mail: 
                 send_mail(mail, "System Message: nnUNet Script successfull", "nnUNet script finished without errors")
