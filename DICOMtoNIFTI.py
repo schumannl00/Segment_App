@@ -14,27 +14,15 @@ import nibabel as nib
 from nibabel.orientations import io_orientation, axcodes2ornt, ornt_transform
 from typing import List, Pattern, Tuple, Set, Dict, Optional 
 from dataclasses import dataclass, field
+from pydantic import BaseModel, Field, DirectoryPath, FilePath, field_validator
+from abc import ABC, abstractmethod
 
 
+settings.disable_validate_slice_increment()
 
-settings. disable_validate_slice_increment()
-
-
-@dataclass
-class NiftiConfig:
-    raw_path: Path
-    scans_indicators: Optional[List[str]] = None
-    group_filter: Optional[str] = None
-    use_default: bool = True
-    max_workers: int = 14
-    use_only_name: bool = True
-    max_workers_dicom: int = 32
-
-    def __post_init__(self):
-        # Convert string path to Path object automatically
-        if isinstance(self.raw_path, str):
-            self.raw_path = Path(self.raw_path)
-
+# Precompiled regex, reduces overhead 
+sanitize_general : re.Pattern = re.compile(r'[\\/*?:"<>|_]')
+sanitize_spaces : re.Pattern = re.compile(r'\s+')
 
 def build_pattern(indicator : str ) -> re.Pattern:
     forbidden_boundary = r"[\w.+\-]"
@@ -42,20 +30,13 @@ def build_pattern(indicator : str ) -> re.Pattern:
     pattern = f"(?<!{forbidden_boundary}){escaped_indicator}(?!{forbidden_boundary})"
     return re.compile(pattern, re.IGNORECASE)
 
-
-
-
-# Precompiled regex, reduces overhead 
-sanitize_general : re.Pattern = re.compile(r'[\\/*?:"<>|_]')
-sanitize_spaces : re.Pattern = re.compile(r'\s+')
-
 def clean_string(s : str ) -> str:
     s = sanitize_general.sub("-", s)
     s = sanitize_spaces.sub("-", s)
     s = s.strip().rstrip(".")
     return s or "Unknown"
 
-# potentailly move the copy over to a link style, not sure if that might cause problem in windows with massive amount of files 
+# use as fallback if needed
 def safe_copy(src_dst : Tuple[str, str]):
     src, dst = src_dst
     try:
@@ -86,7 +67,168 @@ def safe_link(src_dst : Tuple[str, str]):
         return e
 
 
-def DICOM_splitter(path : str | Path , max_workers : int = 32, use_only_name : bool = True):
+class NiftiConfig(BaseModel):
+    raw_path: DirectoryPath
+    scans_indicators: Optional[List[str]] = None
+    group_filter: Optional[str] = None
+    use_default: bool = True
+    max_workers: int = Field(default=14, gt=0)
+    use_only_name: bool = True
+    max_workers_dicom: int = Field(default=32, gt=0)
+
+    # Automatically compile indicators into patterns if they exist
+    def get_patterns(self) -> List[re.Pattern]:
+        if not self.scans_indicators:
+            return []
+        return [build_pattern(clean_string(ind)) for ind in self.scans_indicators]
+    
+    @field_validator('raw_path', mode='before')
+    @classmethod
+    def convert_to_path(cls, v):
+        return Path(v) if isinstance(v, str) else v
+
+class ConversionTask(BaseModel):
+    input_dir: DirectoryPath
+    output_path: Path # Not yet a FilePath because it doesn't exist yet
+    
+    class Config:
+        arbitrary_types_allowed = True
+        
+        
+class BaseConverter(ABC):
+    def __init__(self, config: NiftiConfig):
+        self.config = config
+
+    @abstractmethod
+    def run(self):
+        """Orchestrates the sorting and parallel conversion."""
+        pass
+
+    @staticmethod
+    @abstractmethod
+    def process_item(task: ConversionTask) -> Tuple[str, bool, str]:
+        """The core conversion logic executed in parallel."""
+        pass
+    
+    
+class NiftiParallelConverter(BaseConverter):
+    def run(self):
+        start_time = time.time()
+        print(f"{'-'*20}\nStep 1: Sorting DICOM files...")
+        
+        # 1. Sort DICOMs (utilizing your existing DICOM_splitter function)
+        sort_dir, nifti_out_dir = DICOM_splitter(
+            self.config.raw_path, 
+            max_workers=self.config.max_workers_dicom, 
+            use_only_name=self.config.use_only_name
+        )
+        
+        # 2. Prepare validated tasks
+        print("Step 2: Preparing conversion tasks...")
+        tasks = self._prepare_tasks(sort_dir, nifti_out_dir)
+        
+        if not tasks:
+            print("No series found matching the criteria.")
+            return
+
+        # 3. Parallel Execution
+        print(f"Step 3: Starting conversion with {self.config.max_workers} processes...")
+        results = []
+        with concurrent.futures.ProcessPoolExecutor(max_workers=self.config.max_workers) as executor:
+            future_to_task = {executor.submit(self.process_item, task): task for task in tasks}
+            
+            for future in concurrent.futures.as_completed(future_to_task):
+                try:
+                    results.append(future.result())
+                except Exception as exc:
+                    task = future_to_task[future]
+                    results.append((str(task.input_dir), False, str(exc)))
+
+        # 4. Summary Reporting
+        self._report(results, start_time)
+
+    def _prepare_tasks(self, sort_dir: Path, nifti_out_dir: Path) -> List[ConversionTask]:
+        tasks = []
+        # Compile patterns once
+        patterns = [build_pattern(clean_string(ind)) for ind in (self.config.scans_indicators or [])]
+        group_pat = re.compile(re.escape(self.config.group_filter), re.IGNORECASE) if self.config.group_filter else None
+
+        for item_name in os.listdir(sort_dir):
+            full_path = sort_dir / item_name
+            if not full_path.is_dir(): continue
+            
+            should_convert = self.config.use_default
+            if not should_convert:
+                parts = item_name.split("_")
+                series_desc = "_".join(parts[3:]) if len(parts) >= 4 else ""
+                
+                match_ind = any(p.search(series_desc) for p in patterns) if patterns else False
+                match_grp = bool(group_pat.search(item_name)) if group_pat else False
+                should_convert = match_ind or match_grp
+
+            if should_convert:
+                tasks.append(ConversionTask(
+                    input_dir=full_path, 
+                    output_path=nifti_out_dir / f"{item_name}.nii.gz"
+                ))
+        return tasks
+
+    @staticmethod
+    def process_item(task: ConversionTask) -> Tuple[str, bool, str]:
+        """Static method for better cross-platform process serialization."""
+        try:
+            
+            task.output_path.parent.mkdir(parents=True, exist_ok=True)
+            # Your original conversion + RAS reorientation logic here
+            dicom2nifti.dicom_series_to_nifti(str(task.input_dir), str(task.output_path), reorient_nifti=True)
+            
+            nii = nib.load(str(task.output_path))
+            orig_orient = io_orientation(nii.affine)
+            target_orient = axcodes2ornt(('R', 'A', 'S'))
+            
+            if not np.array_equal(orig_orient, target_orient):
+                transform = ornt_transform(orig_orient, target_orient)
+                nii_ras = nii.as_reoriented(transform)
+                nib.save(nii_ras, str(task.output_path))
+                
+            return (str(task.input_dir), True, str(task.output_path))
+        except Exception as e:
+            error_msg = f"Failed conversion for {task.input_dir.name}: {e}"
+            print(error_msg)
+            if task.output_path.exists():
+                try:
+                    os.remove(task.output_path)
+                except Exception:
+                    pass
+            return (str(task.input_dir), False, str(e))
+
+    def _report(self, results, start_time):
+        success = sum(1 for r in results if r[1])
+        print(f"{'-'*20}\nConversion Summary:")
+        print(f"  Successful: {success}\n  Failed: {len(results) - success}")
+        print(f"  Total Time: {time.time() - start_time:.2f}s\n{'-'*20}")
+    
+    
+    
+
+    
+@dataclass
+class NiftiConfig:
+    raw_path: Path
+    scans_indicators: Optional[List[str]] = None
+    group_filter: Optional[str] = None
+    use_default: bool = True
+    max_workers: int = 14
+    use_only_name: bool = False
+    max_workers_dicom: int = 32
+
+    def __post_init__(self):
+        # Convert string path to Path object automatically
+        if isinstance(self.raw_path, str):
+            self.raw_path = Path(self.raw_path)
+
+
+def DICOM_splitter(path : str | Path , max_workers : int = 32, use_only_name : bool = False) -> Tuple[Path, Path]:
     """Splits a potentially directory of Dicom files into nicely named directory one for each scan/document . """
     p = Path(path)
 
@@ -164,9 +306,9 @@ def DICOM_splitter(path : str | Path , max_workers : int = 32, use_only_name : b
             error_files += 1
     
     # ------------------------------------------------------
-    # PASS 2: PARALLEL COPY (I/O bound → threads are ideal)
+    # PASS 2: Link (I/O bound → threads are ideal)
     # ------------------------------------------------------
-    print(f"\nStarting parallel copy of {len(files_to_link)} files...")
+    print(f"\nStarting parallel link of {len(files_to_link)} files...")
 
     with ThreadPoolExecutor(max_workers=max_workers) as exe:
         futures = [exe.submit(safe_link, pair) for pair in files_to_link]
@@ -182,7 +324,7 @@ def DICOM_splitter(path : str | Path , max_workers : int = 32, use_only_name : b
     # Summary
     # -----------------------------
     print("\nDICOM Sorting Summary:")
-    print(f"  Copied: {copied_files}")
+    print(f"  Linked: {copied_files}")
     print(f"  Skipped: {skipped_files}")
     print(f"  Errors: {error_files}")  #super unlikely unless storage full, never encountered any in testing so far 
 
@@ -499,5 +641,6 @@ if __name__ == "__main__":
     from multiprocessing import freeze_support
     freeze_support()  # This is needed for Windows
     # Your function call here
-    config = NiftiConfig(r"C:\Users\schum\Desktop\zesbo\test_ank\anke", max_workers= 6, max_workers_dicom=12)
-    raw_data_to_nifti_parallel(config)
+    config = NiftiConfig(r"C:\Users\schum\Desktop\zesbo\test_ank\anke", max_workers= 6, max_workers_dicom=12, use_default=True)
+    converter = NiftiParallelConverter(config)
+    converter.run()

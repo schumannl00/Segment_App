@@ -33,10 +33,10 @@ from skimage import measure
 from scipy import ndimage
 import pyvista as pv
 from stl import mesh
-from multi_stl import process_directory_parallel
+from multi_stl import process_directory_parallel, MeshSmoothingConfig, STLProcessingConfig, LabelConfig, ParallelSTLProcessor
 import shutil
 from cutting import masking, zcut, cut_volume
-from DICOMtoNIFTI import raw_data_to_nifti_parallel, nifti_renamer, NiftiConfig
+from DICOMtoNIFTI import raw_data_to_nifti_parallel, nifti_renamer, NiftiConfig, NiftiParallelConverter
 from modifier import  stl_renamer_with_lut
 from utils.mailing import send_mail
 import ttkbootstrap as tb
@@ -97,16 +97,25 @@ default_segment_params = {
     'mesh_smoothing_factor': 0.1
 }
 
-# Initialize segment_params with defaults for all labels in labels_dict
+default_mesh_config = MeshSmoothingConfig(
+    method='taubin',
+    iterations=150,
+    factor=0.1
+)
+
+
+# The result will be a dict of dicts: { "111": { 1: LabelConfig, ... }, ... }
 segment_params = {}
-for id_key, labels in labels_dict.items():
-    if id_key not in segment_params:
-        segment_params[id_key] = {}
-    for label_id, label_name in labels.items():
-        segment_params[id_key][label_id] = {
-            'label': label_name,
-            **default_segment_params
-        }
+
+for subject_id, labels in labels_dict.items():
+    segment_params[subject_id] = {
+        int(label_id): LabelConfig(
+            label_name=label_name,
+            volume_smoothing=1.0,
+            mesh_config=default_mesh_config
+        )
+        for label_id, label_name in labels.items()
+    }
 
 
 def process_mail_input(raw_input):
@@ -810,9 +819,10 @@ class ParameterGUI:
                 # Step 1: Convert DICOM to NIfTI 
                 self.progress_queue.put(ProgressEvent(10, "Converting DICOM to NIfTI..."))
                 nifti_config =  NiftiConfig(input_path, scan_indicators, group_filter, use_default, use_only_name=just_name)
+                #converter = NiftiParallelConverter(nifti_config)
+                #converter.run()
                 raw_data_to_nifti_parallel(nifti_config) 
                 inference_path = os.path.join(str(input_path.parent),r'NIFTI')
-            # Step 2: Process NIfTI files - get files to process
             
             else: 
                 self.progress_queue.put(ProgressEvent(10, "Starting with NIfTI..."))
@@ -1008,7 +1018,11 @@ class ParameterGUI:
             print("Starting with batched stl conversion.")
             # Get label files from the output directory
             stl_metadata_path = Path(input_path.parent) / "stl_metadata.json"
-            process_directory_parallel(labelmap_output_path, stl_output_path, segment_params=segment_params[selected_id], split=split, use_pymeshfix=meshrepair, remove_islands=remove_islands, max_workers=10, stl_metadata_path=stl_metadata_path)
+            selected_params = segment_params[selected_id]
+            stl_config = STLProcessingConfig(input_dir=labelmap_output_path, output_root=stl_output_path, segment_params=selected_params, split=split, use_pymeshfix=meshrepair, remove_islands=remove_islands, stl_metadata_path=stl_metadata_path)
+            stl_processor = ParallelSTLProcessor(stl_config)
+            stl_processor.run()
+            # process_directory_parallel(labelmap_output_path, stl_output_path, segment_params=segment_params[selected_id], split=split, use_pymeshfix=meshrepair, remove_islands=remove_islands, max_workers=10, stl_metadata_path=stl_metadata_path)
             
             self.progress_queue.put(ProgressEvent(90, "STL names back to original names..."))
             reverse_mapping_number = stl_renamer_with_lut(stl_output_path=stl_output_path, file_mapping=file_mapping)
@@ -1192,7 +1206,7 @@ class ParameterGUI:
             processing_thread.start()
 
 
-    def edit_segment_params(self):
+    def edit_segment_params_old(self):
 
         selected_id = self.id_var.get()
         if not selected_id:
@@ -1242,7 +1256,7 @@ class ParameterGUI:
         segment_frame.columnconfigure(0, weight=1)
 
     # Function to save the updated parameters
-        def save_params():
+        def save_params_old():
             try:
                 for (label_id, param_name), entry_widget in param_entries[selected_id].items():
                     value = entry_widget.get()
@@ -1263,8 +1277,94 @@ class ParameterGUI:
         button_frame = ttk.Frame(scrolled)
         button_frame.pack(fill="x", expand=True, padx=10, pady=10)
         
-        ttk.Button(button_frame, text="Save", command=save_params, style="success").pack(side="left", padx=15)
+        ttk.Button(button_frame, text="Save", command=save_params_old, style="success").pack(side="left", padx=15)
         ttk.Button(button_frame, text="Cancel", command=segment_window.destroy, style="warning").pack(side="right", padx=15)
+        
+        
+    def edit_segment_params(self):
+        selected_id = self.id_var.get()
+        if not selected_id:
+            messagebox.showerror("Error", "Please select an ID or name first.")
+            return
+        if self.processing_running:
+            messagebox.showwarning("Processing in Progress", 
+                                "Please wait for current operation to complete.")
+            return
+
+        segment_window = tk.Toplevel(self.root)
+        segment_window.title(f"Edit Segment Params - ID {selected_id}")
+        segment_window.geometry("500x750")
+        
+        scrolled = ScrolledFrame(segment_window, autohide=True)
+        scrolled.pack(fill="both", expand=True, padx=5, pady=5)
+
+        # Dictionary to store entry widgets: {(label_id, attribute_name): entry_widget}
+        param_entries = {}
+
+        # Get the specific params for this subject (List of LabelConfigs)
+        # selected_id is the key, segment_params[selected_id] is Dict[int, LabelConfig]
+        current_labels = segment_params[selected_id]
+
+        segment_frame = ttk.LabelFrame(scrolled, text=f"Parameters for {selected_id}")
+        segment_frame.pack(fill="x", expand=True, padx=10, pady=5)
+
+        row = 0
+        for label_id, config in current_labels.items():
+            # Accessing Pydantic attributes: .label_name instead of ['label']
+            label_frame = ttk.LabelFrame(segment_frame, text=f"Label {label_id} ({config.label_name})")
+            label_frame.grid(row=row, column=0, sticky="ew", padx=5, pady=5)
+            label_frame.columnconfigure(1, weight=1)
+
+            # 1. Volume Smoothing (Direct Attribute)
+            ttk.Label(label_frame, text="Volume Smoothing:").grid(row=0, column=0, sticky="w", padx=5)
+            v_entry = ttk.Entry(label_frame)
+            v_entry.insert(0, str(config.volume_smoothing))
+            v_entry.grid(row=0, column=1, sticky="ew", padx=5, pady=2)
+            param_entries[(label_id, "volume_smoothing")] = v_entry
+
+            # 2. Mesh Config (Nested Object Attributes)
+            # We unwrap the mesh_config object into individual fields
+            m_cfg = config.mesh_config
+            mesh_params = [
+                ("method", m_cfg.method),
+                ("iterations", m_cfg.iterations),
+                ("factor", m_cfg.factor)
+            ]
+
+            for i, (p_name, p_val) in enumerate(mesh_params, start=1):
+                ttk.Label(label_frame, text=f"Mesh {p_name.capitalize()}:").grid(row=i, column=0, sticky="w", padx=5)
+                m_entry = ttk.Entry(label_frame)
+                m_entry.insert(0, str(p_val))
+                m_entry.grid(row=i, column=1, sticky="ew", padx=5, pady=2)
+                param_entries[(label_id, f"mesh_{p_name}")] = m_entry
+            
+            row += 1
+
+        def save_params():
+            try:
+                for label_id, config in current_labels.items():
+                    # Update Volume Smoothing
+                    config.volume_smoothing = float(param_entries[(label_id, "volume_smoothing")].get())
+                    
+                    # Update Nested Mesh Config
+                    config.mesh_config.method = param_entries[(label_id, "mesh_method")].get()
+                    config.mesh_config.iterations = int(param_entries[(label_id, "mesh_iterations")].get())
+                    config.mesh_config.factor = float(param_entries[(label_id, "mesh_factor")].get())
+
+                messagebox.showinfo("Success", "Parameters updated and validated.")
+                segment_window.destroy()
+            except ValueError as e:
+                messagebox.showerror("Error", f"Invalid number format: {str(e)}")
+            except Exception as e:
+                messagebox.showerror("Error", f"Validation Failed: {str(e)}")
+
+        # Buttons
+        button_frame = ttk.Frame(scrolled)
+        button_frame.pack(fill="x", expand=True, padx=10, pady=10)
+        ttk.Button(button_frame, text="Save", command=save_params, style="success").pack(side="left", padx=15)
+        ttk.Button(button_frame, text="Cancel", command=segment_window.destroy, style="warning").pack(side="right", padx=15)  
+            
+    
 
 if __name__ == "__main__":
     root = TkinterDnD.Tk()
