@@ -16,10 +16,13 @@ from concurrent.futures import ProcessPoolExecutor, as_completed
 from functools import partial
 import multiprocessing as mp
 from utils.stl_metadata import calculate_volume_and_surface_area, save_metadata_to_json
-from typing import List, Dict, Tuple, Optional, Union, Any, TypedDict
+from typing import List, Dict, Tuple, Optional, Union, Any, TypedDict, Literal 
+from pydantic import BaseModel, Field, DirectoryPath, field_validator
+from abc import ABC, abstractmethod
+import time
 
 
-# Define a shortcut for types objects
+# Define a shortcut for types objects, depre
 class SegmentConfig(TypedDict, total=False):
     label: str
     smoothing: float
@@ -30,6 +33,59 @@ class SegmentConfig(TypedDict, total=False):
 PathLike = Union[str, Path]
 ProcessResult = Tuple[str, bool, Optional[str], List[Tuple[str, Dict[str, float]]]]
 
+
+class MeshSmoothingConfig(BaseModel):
+    method: Literal['taubin', 'laplacian'] = 'taubin'
+    iterations: int = Field(default=100, ge=0)
+    factor: float = Field(default=0.1, gt=0)
+    
+    
+class LabelConfig(BaseModel):
+    label_name: str
+    volume_smoothing: float = Field(default=1.0, ge=0)
+    mesh_config: MeshSmoothingConfig = Field(default_factory=MeshSmoothingConfig)
+    
+class STLProcessingConfig(BaseModel):
+    input_dir: DirectoryPath
+    output_root: Path
+    segment_params: Dict[int, LabelConfig]
+    fill_holes: int = 0
+    use_pymeshfix: bool = True
+    remove_islands: bool = True
+    max_workers: Optional[int] = 12
+    batch_size: int = Field(default=50, gt=0)
+    resume: bool = True
+    stl_metadata_path: Optional[Path] = None
+    split: bool = False
+    
+    
+class STLTask(BaseModel):
+    """Container for a single NIfTI file task to be pickled across processes."""
+    input_file: Path
+    output_dir: Path
+    file_number: str
+    
+    class Config:
+        arbitrary_types_allowed = True
+    
+    
+class BaseSurfaceReconstructor(ABC):
+    def __init__(self, config: STLProcessingConfig):
+        self.config = config
+
+    @abstractmethod
+    def run(self):
+        """Orchestrate the directory processing and batching."""
+        pass
+
+    @staticmethod
+    @abstractmethod
+    def process_file(task: STLTask, config: STLProcessingConfig) -> tuple:
+        """The core Marching Cubes and smoothing logic."""
+        pass
+    
+   
+    
 
 def debug_normals(verts, faces, mag=5.0):
     """Visualizes face normals as arrows."""
@@ -66,6 +122,7 @@ def smooth_mesh_pyvista(vertices : np.ndarray, faces : np.ndarray, method : str 
     print(f"Correcting centroid shift of {shift}.")
     smoothed_vertices += shift
     return smoothed_vertices
+
 
 
 def fill_holes_3d(segmentation):
@@ -181,7 +238,7 @@ def process_single_file(file_info : Tuple[str, str, str | int ], segment_params 
                 try:
                     meshfix = pymeshfix.MeshFix(verts, faces)
                     meshfix.repair(verbose=False, remove_smallest_components=remove_islands)
-                    verts, faces = meshfix.v, meshfix.f
+                    verts, faces = meshfix.points, meshfix.faces
                     
                     t_mesh = trimesh.Trimesh(vertices=verts, faces=faces, process=False)
                     
@@ -377,6 +434,154 @@ def process_directory_parallel(input_dir : PathLike, output_root_dir : PathLike 
     return all_results
 
 
+class ParallelSTLProcessor(BaseSurfaceReconstructor):
+    def run(self):
+        start_time = time.time()
+        self.config.output_root.mkdir(parents=True, exist_ok=True)
+        checkpoint_path = self.config.output_root.parent / ".stl_processing_checkpoint.json"
+        
+        # 1. Checkpoint & Task Preparation
+        checkpoint = self._load_checkpoint(checkpoint_path)
+        all_tasks = self._prepare_tasks(checkpoint["completed"])
+        
+        if not all_tasks:
+            print("No files left to process.")
+            return
+
+        print(f"Starting STL conversion for {len(all_tasks)} files...")
+        stl_metadata = {}
+        all_failed = checkpoint["failed"]
+
+        # 2. Batch Execution
+        for i in range(0, len(all_tasks), self.config.batch_size):
+            batch = all_tasks[i : i + self.config.batch_size]
+            print(f"\nProcessing Batch {(i // self.config.batch_size) + 1}...")
+            
+            with ProcessPoolExecutor(max_workers=self.config.max_workers) as executor:
+                futures = {executor.submit(self.process_file, task, self.config): task for task in batch}
+                
+                for future in as_completed(futures):
+                    file_name, success, error, metadata_entries = future.result()
+                    if success:
+                        checkpoint["completed"].append(file_name)
+                        for name, meta in metadata_entries:
+                            stl_metadata[name] = meta
+                        print(f"✓ Completed: {file_name}")
+                    else:
+                        all_failed.append({"file": file_name, "error": error})
+                        print(f"✗ Failed: {file_name}")
+
+            # 3. Save progress after each batch
+            self._save_checkpoint(checkpoint_path, checkpoint["completed"], all_failed)
+
+        # 4. Final Metadata Export
+        if self.config.stl_metadata_path and stl_metadata:
+            from utils.stl_metadata import save_metadata_to_json
+            save_metadata_to_json(stl_metadata, self.config.stl_metadata_path)
+
+        print(f"\n{'='*30}\nTotal execution time: {time.time() - start_time:.2f}s")
+
+    @staticmethod
+    def process_file(task: STLTask, config: STLProcessingConfig) -> tuple:
+        """Process a single NIfTI file to STL, returning success status and metadata."""
+        file_name = task.input_file.name
+        metadata_entries = []
+        try:
+            simple_name = task.input_file.stem.split('.')[0]
+            nii_img = nib.load(str(task.input_file))
+            nii_data = nii_img.get_fdata()
+            affine = nii_img.affine
+            
+            for label, params in config.segment_params.items():
+                # Extract Binary Segment
+                binary_segment = (nii_data == int(label))
+                if np.sum(binary_segment) == 0:
+                    binary_segment = (np.round(nii_data).astype(int) == int(label))
+                
+                if np.sum(binary_segment) == 0:
+                    continue
+
+                if config.fill_holes > 0:
+                    binary_segment = fill_holes_3d(binary_segment) # Helper function, works ok should be tunred off by default 
+
+                # Volume Smoothing
+                smoothed = ndimage.gaussian_filter(binary_segment.astype(float), sigma=params.volume_smoothing)
+                binary_smooth = smoothed > 0.5
+                
+                if np.sum(binary_smooth) == 0: continue
+
+                # Marching Cubes
+                verts, faces, _, _ = measure.marching_cubes(binary_smooth, level=0.5)
+            
+                # Voxel to World + LPS Conversion
+                verts = np.hstack([verts, np.ones((verts.shape[0], 1))])
+                verts = (affine @ verts.T).T[:, :3]
+                verts = convert_to_LPS(verts) # Helper function to get coordinate system right 
+
+                # Mesh Smoothing
+                m_cfg = params.mesh_config
+                if m_cfg.iterations > 0:
+                    verts = smooth_mesh_pyvista(verts, faces, method=m_cfg.method, 
+                                               n_iter=m_cfg.iterations, relaxation_factor=m_cfg.factor)
+
+                # Pymeshfix Repair
+                if config.use_pymeshfix:
+                    meshfix = pymeshfix.MeshFix(verts, faces)
+                    meshfix.repair(remove_smallest_components=config.remove_islands)
+                    verts, faces = meshfix.points, meshfix.faces
+                    
+                    t_mesh = trimesh.Trimesh(vertices=verts, faces=faces, process=False)
+                    trimesh.repair.fix_inversion(t_mesh)
+                    verts, faces = t_mesh.vertices, t_mesh.faces
+                    
+                    # Post-repair polish
+                    verts = smooth_mesh_pyvista(verts, faces, method=m_cfg.method, n_iter=50, relaxation_factor=0.1)
+                    
+                    
+                #debug_normals(verts, faces)   
+
+                # Export STL
+                from utils.stl_metadata import calculate_volume_and_surface_area
+                vol, surf = calculate_volume_and_surface_area(verts, faces)
+                metadata_entries.append((f"{simple_name}_{params.label_name}", {"Mesh_volume_mm3": vol, "Surface_Area_mm2": surf}))
+
+                stl_mesh = mesh.Mesh(np.zeros(faces.shape[0], dtype=mesh.Mesh.dtype))
+                for i, face in enumerate(faces):
+                    for j in range(3):
+                        stl_mesh.vectors[i][j] = verts[face[j]]
+                
+                out_name = f"{params.label_name}_{task.file_number}.stl"
+                stl_mesh.save(task.output_dir / out_name)
+            
+            return (file_name, True, None, metadata_entries)
+        except Exception as e:
+            return (file_name, False, str(e), [])
+
+    def _prepare_tasks(self, completed_list) -> List[STLTask]:
+        tasks = []
+        completed_set = set(completed_list)
+        for f_name in sorted(os.listdir(self.config.input_dir)):
+            if f_name.endswith(".nii.gz") and f_name not in completed_set:
+                input_path = self.config.input_dir / f_name
+                file_num = f_name.split('_')[1].split('.')[0].split("-")[0]
+                
+                out_dir = self.config.output_root / f"STL{file_num}"
+                if self.config.split and "-" in f_name:
+                    side = f_name.split('_')[1].split('.')[0].split("-")[1]
+                    out_dir = Path(str(out_dir) + f"_{side}")
+                
+                out_dir.mkdir(parents=True, exist_ok=True)
+                tasks.append(STLTask(input_file=input_path, output_dir=out_dir, file_number=file_num))
+        return tasks
+
+    def _load_checkpoint(self, path):
+        if self.config.resume and path.exists():
+            return json.loads(path.read_text())
+        return {"completed": [], "failed": []}
+
+    def _save_checkpoint(self, path, completed, failed):
+        path.write_text(json.dumps({"completed": completed, "failed": failed}, indent=2))
+
 # Example segment parameters
 segment_params_leg = {
     1: {
@@ -434,17 +639,54 @@ segment_ankle = {
 }
 
 
+spinal_params = {
+    # Cervical Vertebrae (C1 - C7)
+    1: LabelConfig(label_name="C1_Atlas", volume_smoothing=0.5, mesh_config=MeshSmoothingConfig(iterations=150)),
+    2: LabelConfig(label_name="C2_Axis", volume_smoothing=0.5, mesh_config=MeshSmoothingConfig(iterations=150)),
+    3: LabelConfig(label_name="C3", volume_smoothing=0.5, mesh_config=MeshSmoothingConfig(iterations=150)),
+    4: LabelConfig(label_name="C4", volume_smoothing=0.5, mesh_config=MeshSmoothingConfig(iterations=150)),
+    5: LabelConfig(label_name="C5", volume_smoothing=0.5, mesh_config=MeshSmoothingConfig(iterations=150)),
+    6: LabelConfig(label_name="C6", volume_smoothing=0.5, mesh_config=MeshSmoothingConfig(iterations=150)),
+    7: LabelConfig(label_name="C7", volume_smoothing=0.5, mesh_config=MeshSmoothingConfig(iterations=150)),
+
+    # Thoracic Vertebrae (T1 - T12)
+    8: LabelConfig(label_name="T1", volume_smoothing=0.5, mesh_config=MeshSmoothingConfig(iterations=150)),
+    9: LabelConfig(label_name="T2", volume_smoothing=0.5, mesh_config=MeshSmoothingConfig(iterations=150)),
+    10: LabelConfig(label_name="T3", volume_smoothing=0.5, mesh_config=MeshSmoothingConfig(iterations=150)),
+    11: LabelConfig(label_name="T4", volume_smoothing=0.5, mesh_config=MeshSmoothingConfig(iterations=150)),
+    12: LabelConfig(label_name="T5", volume_smoothing=0.5, mesh_config=MeshSmoothingConfig(iterations=150)),
+    13: LabelConfig(label_name="T6", volume_smoothing=0.5, mesh_config=MeshSmoothingConfig(iterations=150)),
+    14: LabelConfig(label_name="T7", volume_smoothing=0.5, mesh_config=MeshSmoothingConfig(iterations=150)),
+    15: LabelConfig(label_name="T8", volume_smoothing=0.5, mesh_config=MeshSmoothingConfig(iterations=150)),
+    16: LabelConfig(label_name="T9", volume_smoothing=0.5, mesh_config=MeshSmoothingConfig(iterations=150)),
+    17: LabelConfig(label_name="T10", volume_smoothing=0.5, mesh_config=MeshSmoothingConfig(iterations=150)),
+    18: LabelConfig(label_name="T11", volume_smoothing=0.5, mesh_config=MeshSmoothingConfig(iterations=150)),
+    19: LabelConfig(label_name="T12", volume_smoothing=0.5, mesh_config=MeshSmoothingConfig(iterations=150)),
+
+    # Lumbar Vertebrae (L1 - L6)
+    20: LabelConfig(label_name="L1", volume_smoothing=0.5, mesh_config=MeshSmoothingConfig(iterations=150)),
+    21: LabelConfig(label_name="L2", volume_smoothing=0.5, mesh_config=MeshSmoothingConfig(iterations=150)),
+    22: LabelConfig(label_name="L3", volume_smoothing=0.5, mesh_config=MeshSmoothingConfig(iterations=150)),
+    23: LabelConfig(label_name="L4", volume_smoothing=0.5, mesh_config=MeshSmoothingConfig(iterations=150)),
+    24: LabelConfig(label_name="L5", volume_smoothing=0.5, mesh_config=MeshSmoothingConfig(iterations=150)),
+    25: LabelConfig(label_name="L6", volume_smoothing=0.5, mesh_config=MeshSmoothingConfig(iterations=150)),
+}
+
+
 if __name__ == "__main__":
    
     mp.freeze_support()
     
-    process_directory_parallel(
-        input_dir=r"E:\multiple\label",
-        output_root_dir=r"E:\multiple\stl",
-        segment_params=segment_ankle,
-        remove_islands=True,
-        split=False,
-        max_workers=14,      
-        batch_size=10,       
-        resume=True          
-    )
+    config = STLProcessingConfig(
+        input_dir=Path(r"C:\Users\schum\Desktop\zesbo\scoliosis_project\labels"),
+        output_root=Path(r"C:\Users\schum\Desktop\zesbo\scoliosis_project\stl_output"),
+        segment_params=spinal_params,
+        max_workers=mp.cpu_count() - 4,
+        batch_size=10,
+        stl_metadata_path=Path(r"C:\Users\schum\Desktop\zesbo\scoliosis_project\stl_metadata.json")
+        )
+    
+    
+    processor = ParallelSTLProcessor(config)
+    processor.run()
+        

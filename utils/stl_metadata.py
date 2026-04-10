@@ -2,11 +2,6 @@ import numpy as np
 import json
 import os
 
-# ...existing code...
-import numpy as np
-import json
-import os
-
 def calculate_volume_and_surface_area(vertices, faces):
     """
     Calculate the volume and surface area of a mesh defined by vertices and faces.
