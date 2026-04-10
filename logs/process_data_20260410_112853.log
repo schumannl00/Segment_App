@@ -1,0 +1,69 @@
+--- Log started for process_data at 2026-04-10 11:28:53.752612 ---
+--- Log file: D:\nnUnet (Ankle)\Segment_App\logs\process_data_20260410_112853.log ---
+--------------------
+Step 1: Sorting DICOM files...
+Sorting DICOMs from: E:\filter_test\raw
+Output sorted DICOMs to: E:\filter_test\sortiert
+Output NIFTI files to: E:\filter_test\NIFTI
+Using only PatientName for folder naming: True
+Scanning DICOM files and preparing copy list...
+
+Starting parallel link of 3138 files...
+
+DICOM Sorting Summary:
+  Linked: 3138
+  Skipped: 0
+  Errors: 0
+Step 2: Preparing conversion tasks...
+Step 3: Starting conversion with 14 processes...
+--------------------
+Conversion Summary:
+  Successful: 2
+  Failed: 0
+  Total Time: 35.88s
+--------------------
+0 LPS
+1 LPS
+2 LPS
+Offset: [182 162  50   1]
+Slicers: (slice(182, 312, None), slice(162, 342, None), slice(50, 523, None))
+(130, 180, 473)
+0 LPS
+1 LPS
+2 LPS
+Offset: [182 162  50   1]
+Slicers: (slice(182, 312, None), slice(162, 342, None), slice(50, 523, None))
+(130, 180, 473)
+{'130-25L-SynG3_130-25L-SynG3_Series38@OSG-Studie(Erwachsener)_OSG-72-0,80-Br64-A3-KF.nii_cut.nii.gz': {'new_filename': 'Ank_001_0000.nii.gz', 'number': '001'}, '130-25L-SynG3_130-25L-SynG3_Series40@OSG-Studie(Erwachsener)_OSG-R1-III-0,80-Br64-A3-KF.nii_cut.nii.gz': {'new_filename': 'Ank_002_0000.nii.gz', 'number': '002'}}
+cuda
+Starting nnU-Net prediction. Status updates will be suppressed from the log.
+nnUNet segmentation done.
+Starting with batched stl conversion.
+Starting STL conversion for 2 files...
+
+Processing Batch 1...
+✓ Completed: Ank_001.nii.gz
+✓ Completed: Ank_002.nii.gz
+
+==============================
+Total execution time: 11.72s
+001
+New name: 130-25L-SynG3_130-25L-SynG3_Series38@OSG-Studie(Erwachsener)_OSG-72-0,80-Br64-A3-KF.nii_cut
+001
+New name: 130-25L-SynG3_130-25L-SynG3_Series38@OSG-Studie(Erwachsener)_OSG-72-0,80-Br64-A3-KF.nii_cut
+001
+New name: 130-25L-SynG3_130-25L-SynG3_Series38@OSG-Studie(Erwachsener)_OSG-72-0,80-Br64-A3-KF.nii_cut
+001
+New name: 130-25L-SynG3_130-25L-SynG3_Series38@OSG-Studie(Erwachsener)_OSG-72-0,80-Br64-A3-KF.nii_cut
+002
+New name: 130-25L-SynG3_130-25L-SynG3_Series40@OSG-Studie(Erwachsener)_OSG-R1-III-0,80-Br64-A3-KF.nii_cut
+002
+New name: 130-25L-SynG3_130-25L-SynG3_Series40@OSG-Studie(Erwachsener)_OSG-R1-III-0,80-Br64-A3-KF.nii_cut
+002
+New name: 130-25L-SynG3_130-25L-SynG3_Series40@OSG-Studie(Erwachsener)_OSG-R1-III-0,80-Br64-A3-KF.nii_cut
+002
+New name: 130-25L-SynG3_130-25L-SynG3_Series40@OSG-Studie(Erwachsener)_OSG-R1-III-0,80-Br64-A3-KF.nii_cut
+Successfully renamed 8 keys and saved to E:\filter_test\stl_metadata.json
+Only 2 cases processed. Skipping dashboard launch.
+
+--- Finished process_data successfully at 2026-04-10 11:30:11.896538 ---

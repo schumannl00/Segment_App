@@ -177,7 +177,7 @@ class NiftiParallelConverter(BaseConverter):
     def process_item(task: ConversionTask) -> Tuple[str, bool, str]:
         """Static method for better cross-platform process serialization."""
         try:
-            
+            print(f"Attempting conversion: {task.input_dir} -> {task.output_path}")
             task.output_path.parent.mkdir(parents=True, exist_ok=True)
             # Your original conversion + RAS reorientation logic here
             dicom2nifti.dicom_series_to_nifti(str(task.input_dir), str(task.output_path), reorient_nifti=True)
@@ -212,20 +212,6 @@ class NiftiParallelConverter(BaseConverter):
     
 
     
-@dataclass
-class NiftiConfig:
-    raw_path: Path
-    scans_indicators: Optional[List[str]] = None
-    group_filter: Optional[str] = None
-    use_default: bool = True
-    max_workers: int = 14
-    use_only_name: bool = False
-    max_workers_dicom: int = 32
-
-    def __post_init__(self):
-        # Convert string path to Path object automatically
-        if isinstance(self.raw_path, str):
-            self.raw_path = Path(self.raw_path)
 
 
 def DICOM_splitter(path : str | Path , max_workers : int = 32, use_only_name : bool = False) -> Tuple[Path, Path]:
@@ -641,6 +627,6 @@ if __name__ == "__main__":
     from multiprocessing import freeze_support
     freeze_support()  # This is needed for Windows
     # Your function call here
-    config = NiftiConfig(r"C:\Users\schum\Desktop\zesbo\test_ank\anke", max_workers= 6, max_workers_dicom=12, use_default=True)
+    config = NiftiConfig(raw_path=Path(r"C:\Users\schum\Desktop\zesbo\test_ank\anke"), max_workers=6, max_workers_dicom=12, use_default=True)
     converter = NiftiParallelConverter(config)
     converter.run()

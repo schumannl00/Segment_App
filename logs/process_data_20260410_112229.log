@@ -1,0 +1,50 @@
+--- Log started for process_data at 2026-04-10 11:22:29.362652 ---
+--- Log file: D:\nnUnet (Ankle)\Segment_App\logs\process_data_20260410_112229.log ---
+--------------------
+Step 1: Sorting DICOM files...
+Sorting DICOMs from: E:\becken2\0000E3EC
+Output sorted DICOMs to: E:\becken2\sortiert
+Output NIFTI files to: E:\becken2\NIFTI
+Using only PatientName for folder naming: True
+Scanning DICOM files and preparing copy list...
+
+Starting parallel link of 0 files...
+
+DICOM Sorting Summary:
+  Linked: 0
+  Skipped: 1210
+  Errors: 0
+Step 2: Preparing conversion tasks...
+Step 3: Starting conversion with 14 processes...
+--------------------
+Conversion Summary:
+  Successful: 2
+  Failed: 0
+  Total Time: 40.05s
+--------------------
+0 RAS
+1 RAS
+2 RAS
+Offset: [0 0 0 1]
+Slicers: (slice(0, 512, None), slice(0, 512, None), slice(0, 363, None))
+(512, 512, 363)
+0 RAS
+1 RAS
+2 RAS
+Offset: [0 0 0 1]
+Slicers: (slice(0, 512, None), slice(0, 512, None), slice(0, 363, None))
+(512, 512, 363)
+{'ANONSQH32K1O7_Anonymous_Series302@unknownStudy_UnknownSeries.nii_cut.nii.gz': {'new_filename': 'Bck_001_0000.nii.gz', 'number': '001'}, 'Anonymous_Anonymous_Series302@unknownStudy_UnknownSeries.nii_cut.nii.gz': {'new_filename': 'Bck_002_0000.nii.gz', 'number': '002'}}
+cuda
+Starting nnU-Net prediction. Status updates will be suppressed from the log.
+nnUNet segmentation done.
+Starting with batched stl conversion.
+No files left to process.
+Anonymous
+New name: Anonymous
+Anonymous
+New name: Anonymous
+Successfully renamed 1 keys and saved to E:\becken2\stl_metadata.json
+Only 2 cases processed. Skipping dashboard launch.
+
+--- Finished process_data successfully at 2026-04-10 11:23:23.235004 ---

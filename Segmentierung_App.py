@@ -49,6 +49,8 @@ with open("ids.json", "r") as ids:
 with open("labels.json", "r") as labels:
     labels_dict = json.load(labels)
 from typing import TypedDict, List, Optional, Union, Dict, Any, Set
+from pydantic import BaseModel, Field, EmailStr, DirectoryPath, field_validator
+
 # pyright: reportAttributeAccessIssue=false
 # pyright: reportGeneralTypeIssues=false
 # pyright: reportOptionalMemberAccess=false
@@ -57,34 +59,57 @@ from typing import TypedDict, List, Optional, Union, Dict, Any, Set
 
 load_dotenv()
 
-AppParameters = TypedDict('AppParameters', {
-    "Input Path": str,
-    "STL Output Path": Optional[str],
-    "Labelmap Output Path": Optional[str],
-    "Scan Indicators": Optional[List[str]],
-    "Group Filter": Optional[str],
-    "Use Default Indicators": bool,
-    "ID": str,
-    "Configuration": str,
-    "Folds": List[int],
-    "Split": bool,
-    "cut_enabled": bool,
-    "lower_x": Optional[str],
-    "upper_x": Optional[str],
-    "lower_y": Optional[str],
-    "upper_y": Optional[str],
-    "lower_z": Optional[str],
-    "upper_z": Optional[str],
-    "keep_originals": bool,
-    "use_percent": bool,
-    "used_lps": bool,
-    "use_meshrepair": bool,
-    "remove_islands": bool,
-    "name_only": bool,
-    "nifti_input": bool,
-    "run_analytics": bool, 
-    "mail" : str
-}, total=True)
+
+class CropConfig(BaseModel):
+    """Sub-config for volume cutting parameters"""
+    enabled: bool = False
+    lower_x: Optional[int] = None
+    upper_x: Optional[int] = None
+    lower_y: Optional[int] = None
+    upper_y: Optional[int] = None
+    lower_z: Optional[int] = None
+    upper_z: Optional[int] = None
+    keep_originals: bool = False
+    use_percent: bool = False
+    used_lps: bool = False
+
+class AppParameters(BaseModel):
+    # Paths
+    input_path: Path
+    stl_output_path: Optional[Path] = None
+    labelmap_output_path: Optional[Path] = None
+    
+    # Filter/Sort Logic
+    scan_indicators: Optional[Set[str]] = Field(default_factory=set)
+    group_filter: Optional[str] = None
+    use_default_indicators: bool = True
+    name_only: bool = True
+    
+    # nnUNet Details
+    dataset_id: str = Field(..., alias="ID") # Maps 'ID' from GUI to 'dataset_id'
+    configuration: str = "3d_fullres"
+    folds: List[int] = Field(default_factory=lambda: [0, 1, 2, 3, 4])
+    nifti_input: bool = False
+    
+    # Processing Flags
+    split_x_axis: bool = False
+    use_meshrepair: bool = True
+    remove_islands: bool = True
+    run_analytics: bool = False
+    
+    # Notifications
+    mail: Optional[EmailStr] = None # EmailStr validates format automatically
+
+    # Nested Sub-Config
+    crop: CropConfig = Field(default_factory=CropConfig)
+
+    class Config:
+        populate_by_name = True # Allows using both 'ID' and 'dataset_id'
+
+
+
+
+
 
 
 EMAIL_REGEX = re.compile(r'^[a-zA-Z0-9_.+-]+@([a-zA-Z0-9-]+\.)+[a-zA-Z]{2,}$') #quite robust mail regex pattern
@@ -132,7 +157,7 @@ def process_mail_input(raw_input):
         # Final Validation
         if EMAIL_REGEX.match(full_mail):
             return full_mail
-        return False
+        return None
 
 
 class ProgressEvent:
@@ -786,42 +811,37 @@ class ParameterGUI:
 
         """Process the input data using the parameters from the GUI"""
         try:
+            input_path = params.input_path
+            stl_output_path = params.stl_output_path or (input_path.parent / "stl")
+            labelmap_output_path = params.labelmap_output_path or (input_path.parent / 'label')
             
-            # Convert string path to Path object if needed
-            input_path = Path(params["Input Path"]) if not isinstance(params["Input Path"], Path) else params["Input Path"]
-            stl_output_path = Path(params["STL Output Path"]) if params["STL Output Path"] else Path(input_path.parent) / "stl"
-            labelmap_output_path = Path(params["Labelmap Output Path"]) if params["Labelmap Output Path"] else Path(input_path.parent) / 'label'
-            selected_id = params["ID"]
-            prefix = id_dict[selected_id]['prefix'] if selected_id in id_dict else ""
-            suffix = id_dict[selected_id]['suffix'] if selected_id in id_dict else ""
-            use_default = params["Use Default Indicators"]
-            scan_indicators= None if use_default else params["Scan Indicators"]
-            group_filter = None if use_default else params["Group Filter"]
-            configuration = params["Configuration"]
-            split = params['Split']
-            just_name = params['name_only']
-            cut_enabled = params['cut_enabled']
-            keep_originals = params["keep_originals"]
-            use_percent = params["use_percent"]
-            meshrepair = params["use_meshrepair"]
-            remove_islands = params["remove_islands"]
-            nifti_input = params["nifti_input"]
-            analytics = params["run_analytics"]
-            used_lps = "LPS" if params["used_lps"] else "RAS"
-            mail = params["mail"]
-             # will be replaced with a proper submit entry 
+            selected_id = params.dataset_id # Uses the field name (aliased from 'ID')
+            prefix = id_dict.get(selected_id, {}).get('prefix', "")
+            suffix = id_dict.get(selected_id, {}).get('suffix', "")
             
+            # 2. Logic flags
+            use_default = params.use_default_indicators
+            # Convert Set to List for the converter if necessary
+            scan_indicators = None if use_default else list(params.scan_indicators or set())
+            group_filter = None if use_default else params.group_filter
+            
+            used_lps = "LPS" if params.crop.used_lps else "RAS"
             
             # Ensure output directories exist
-            os.makedirs(stl_output_path, exist_ok=True)
-            os.makedirs(labelmap_output_path, exist_ok=True)
-            if not nifti_input: 
+            stl_output_path.mkdir(parents=True, exist_ok=True)
+            labelmap_output_path.mkdir(parents=True, exist_ok=True)
+            
+           
+            
+            
+            
+            if not params.nifti_input: 
                 # Step 1: Convert DICOM to NIfTI 
                 self.progress_queue.put(ProgressEvent(10, "Converting DICOM to NIfTI..."))
-                nifti_config =  NiftiConfig(input_path, scan_indicators, group_filter, use_default, use_only_name=just_name)
-                #converter = NiftiParallelConverter(nifti_config)
-                #converter.run()
-                raw_data_to_nifti_parallel(nifti_config) 
+                nifti_config =  NiftiConfig(raw_path = input_path, scans_indicators = scan_indicators, group_filter = group_filter, use_default = use_default, use_only_name = params.name_only)
+                converter = NiftiParallelConverter(nifti_config)
+                converter.run()
+                #raw_data_to_nifti_parallel(nifti_config) 
                 inference_path = os.path.join(str(input_path.parent),r'NIFTI')
             
             else: 
@@ -829,7 +849,7 @@ class ParameterGUI:
                 inference_path = input_path
             
             
-            if cut_enabled:
+            if params.crop.enabled:
                 self.progress_queue.put(ProgressEvent(30, "Processing NIfTI files"))
                 try:
                     # Helper to convert GUI string inputs to int or None
@@ -837,14 +857,10 @@ class ParameterGUI:
                         return int(val) if val and str(val).strip() != "" else None
 
                     # 1. Collect inputs into variables from params
-                    lx, ly, lz = get_val(params['lower_x']), get_val(params['lower_y']), get_val(params['lower_z'])
-                    ux, uy, uz = get_val(params['upper_x']), get_val(params['upper_y']), get_val(params['upper_z'])
+                    lower_bounds = (params.crop.lower_x, params.crop.lower_y, params.crop.lower_z)
+                    upper_bounds = (params.crop.upper_x, params.crop.upper_y, params.crop.upper_z)
 
-                    # 2. Form the tuples (x, y, z)
-                    lower_bounds = (lx, ly, lz)
-                    upper_bounds = (ux, uy, uz)
-
-                    # 3. Validate bounds for all axes
+                    # 2. Validate bounds for all axes
                     axes_labels = ['x', 'y', 'z']
                     for i in range(3):
                         l = lower_bounds[i]
@@ -863,27 +879,27 @@ class ParameterGUI:
                     # Make sure cut_volume is imported from your cutting module!
                     for filename in os.listdir(inference_path):
                         full_path = os.path.join(inference_path, filename)
-                        if keep_originals: 
+                        if params.crop.keep_originals: 
                             cut_path = Path(input_path.parent) / "NIFTI_cropped"
                             if os.path.isfile(full_path) and (filename.endswith('.nii') or filename.endswith('.nii.gz')):
                                 cut_volume(
                                     nii_path=full_path,
                                     lower=lower_bounds,
                                     upper=upper_bounds,
-                                    keep_original=keep_originals, 
+                                    keep_original=params.crop.keep_originals, 
                                     destination_dir=cut_path,
-                                    localiser="cut", percents_given=use_percent, input_type=used_lps
+                                    localiser="cut", percents_given=params.crop.use_percent, input_type=params.crop.used_lps
                                 )
                         else: 
                                 cut_volume(
                                     nii_path=full_path,
                                     lower=lower_bounds,
                                     upper=upper_bounds,
-                                    keep_original=keep_originals, 
+                                    keep_original=params.crop.keep_originals, 
                                     destination_dir=inference_path,
-                                    localiser="cut", percents_given=use_percent, input_type=used_lps
+                                    localiser="cut", percents_given=params.crop.use_percent, input_type=params.crop.used_lps
                                 )
-                    if keep_originals: 
+                    if params.crop.keep_originals: 
                         inference_path = cut_path
                             
                 except ValueError:
@@ -905,10 +921,10 @@ class ParameterGUI:
         
             # Step 3: Use nnUNet predictor for segmentation
             self.progress_queue.put(ProgressEvent(50, "Setting up nnUNet predictor..."))
-            selected_id = params["ID"]
-            configuration = params["Configuration"]
-            folds = params["Folds"] 
-            if not folds: 
+            selected_id = params.dataset_id
+            configuration = params.configuration
+            folds = params.folds
+            if not folds:
                 folds = [0,]
             print(torch.device('cuda' if torch.cuda.is_available() else 'cpu'))
             # Create the nnUNet predictor with the specified parameters
@@ -1008,7 +1024,7 @@ class ParameterGUI:
 
             #Masking after segmentation, should not cause problems in the segmentation is faster and background is 0 for every file 
             
-            if split:
+            if params.split_x_axis:
                 for folder in os.listdir(labelmap_output_path):
                     if folder.endswith(".nii.gz"):
                         masking(os.path.join(labelmap_output_path,folder))
@@ -1019,7 +1035,7 @@ class ParameterGUI:
             # Get label files from the output directory
             stl_metadata_path = Path(input_path.parent) / "stl_metadata.json"
             selected_params = segment_params[selected_id]
-            stl_config = STLProcessingConfig(input_dir=labelmap_output_path, output_root=stl_output_path, segment_params=selected_params, split=split, use_pymeshfix=meshrepair, remove_islands=remove_islands, stl_metadata_path=stl_metadata_path)
+            stl_config = STLProcessingConfig(input_dir=labelmap_output_path, output_root=stl_output_path, segment_params=selected_params, split=params.split_x_axis, use_pymeshfix=params.use_meshrepair, remove_islands=params.remove_islands, stl_metadata_path=stl_metadata_path)
             stl_processor = ParallelSTLProcessor(stl_config)
             stl_processor.run()
             # process_directory_parallel(labelmap_output_path, stl_output_path, segment_params=segment_params[selected_id], split=split, use_pymeshfix=meshrepair, remove_islands=remove_islands, max_workers=10, stl_metadata_path=stl_metadata_path)
@@ -1030,14 +1046,14 @@ class ParameterGUI:
             cleaned_metapath = str(Path(stl_metadata_path).resolve())
             
             #this runs the HU analytics as slicer would, just for way more data 
-            if analytics:
+            if params.run_analytics:
                 self.progress_queue.put(ProgressEvent(95, "Running HU analytics..."))
                 stats_dir = Path(input_path.parent) / "HU_Analytics"
                 calculate_hu_stats(inference_path, labelmap_output_path, file_mapping, stats_dir, task_id= selected_id, labels_dict= labels_dict, stl_metadata_path=cleaned_metapath)
 
-            if mail: 
-                send_mail(mail, "System Message: nnUNet Script successfull", "nnUNet script finished without errors")
-            
+            if params.mail: 
+                send_mail(params.mail, "System Message: nnUNet Script successfull", "nnUNet script finished without errors")
+
             self.progress_queue.put(ProgressEvent(100, "Processing complete!"))
 
             case_count = sum(1 for x in Path(stl_output_path).iterdir() if x.is_dir())
@@ -1061,9 +1077,9 @@ class ParameterGUI:
             messagebox.showerror("Error", f"An error occurred during processing: {str(e)}")
             self.status_var.set(f"Error: {str(e)}")
 
-            if mail: 
+            if params.mail: 
                 error_message = f"The nnUNet script failed.\n\nDetails: {str(e)}"
-                send_mail(mail, "System Message: nnUNet Script falied", error_message)
+                send_mail(params.mail, "System Message: nnUNet Script failed", error_message)
             return False
         
     def poll_progress_queue(self):
@@ -1158,53 +1174,73 @@ class ParameterGUI:
 
 
         # Collect parameters
-        params : AppParameters = {
-            "Input Path": self.input_path.get(),
-            "STL Output Path": self.stl_output_path.get(),
-            "Labelmap Output Path": self.labelmap_output_path.get(),
-            "Scan Indicators": self.selected_indicators, #type: ignore
-            "Group Filter": self.group_filter_var.get().strip(),
-            "Use Default Indicators": self.use_default_indicators.get(),
-            "ID": self.id_var.get(),
-            "Configuration": self.config_var.get(),
-            "Folds": selected_folds,
-            'Split' : self.split_nifti_var.get(),
-            'cut_enabled': self.enable_cut.get(),
-            'lower_x': self.lower_x.get(),
-            'upper_x': self.upper_x.get(),
-            'lower_y': self.lower_y.get(),
-            'upper_y': self.upper_y.get(),
-            'lower_z': self.lower_z.get(),
-            'upper_z': self.upper_z.get(),
-            'keep_originals': self.keep_originals.get(),
-            'use_percent': self.use_percent.get(), 
-            "used_lps": self.used_lps.get(),
-            'use_meshrepair': self.meshfix_var.get(),
-            'remove_islands' : self.islands_var.get(), 
-            'name_only' : self.just_name.get(),
-            "nifti_input" : self.input_nifti.get(), 
-            "run_analytics": self.analytics_var.get(), 
-            "mail" : final_email
-        }
+        try:
+            params = AppParameters(
+                input_path=Path(self.input_path.get()),
+                stl_output_path=Path(self.stl_output_path.get()) if self.stl_output_path.get() else None,
+                labelmap_output_path=Path(self.labelmap_output_path.get()) if self.labelmap_output_path.get() else None,
+                scan_indicators=self.selected_indicators,
+                group_filter=self.group_filter_var.get().strip(),
+                use_default_indicators=self.use_default_indicators.get(),
+                ID=self.id_var.get(),
+                configuration=self.config_var.get(),
+                folds=[i for var, i in self.folds_checkbuttons if var.get()],
+                split_x_axis=self.split_nifti_var.get(),
+                name_only=self.just_name.get(),
+                nifti_input=self.input_nifti.get(),
+                use_meshrepair=self.meshfix_var.get(),
+                remove_islands=self.islands_var.get(),
+                run_analytics=self.analytics_var.get(),
+                mail=final_email,
+                crop=CropConfig(
+                    enabled=self.enable_cut.get(),
+                    lower_x=self.get_int_or_none(self.lower_x.get()),
+                    upper_x=self.get_int_or_none(self.upper_x.get()),
+                    lower_y=self.get_int_or_none(self.lower_y.get()),
+                    upper_y=self.get_int_or_none(self.upper_y.get()),
+                    lower_z=self.get_int_or_none(self.lower_z.get()),
+                    upper_z=self.get_int_or_none(self.upper_z.get()),
+                    keep_originals=self.keep_originals.get(),
+                    use_percent=self.use_percent.get(),
+                    used_lps=self.used_lps.get()
+                )
+            )
+            params_dict = params.model_dump()
+            # Show summary of parameters
+            result = "\n".join(f"{k}: {v}" for k, v in params_dict.items())
+            confirmation = messagebox.askyesno(
+                "Confirm Parameters", 
+                f"The following parameters will be used:\n\n{result}\n\nContinue with processing?"
+            )
 
-        # Show summary of parameters
-        result = "\n".join(f"{k}: {v}" for k, v in params.items())
-        confirmation = messagebox.askyesno(
-            "Confirm Parameters", 
-            f"The following parameters will be used:\n\n{result}\n\nContinue with processing?"
-        )
-        
-        if confirmation:
-            self.processing_running = True
-            self.status_var.set("Processing started...")
-            self.progress_var.set(0)
-            
-            # Use a separate thread to avoid freezing the GUI
-            # For simplicity, we're not using threading here, but in a real app you might want to
-            processing_thread = threading.Thread(target=self.process_data, args=(params,))
-            processing_thread.daemon = True
-            processing_thread.start()
+            if confirmation:
+                try:
+                    trace_path = params.input_path.parent / "run_parameters.json"
+                    trace_path.write_text(params.model_dump_json(indent=4), encoding="utf-8")
+                except Exception as e:
+                    # We log the error but don't stop processing; 
+                    # you could also use a messagebox here if it's critical.
+                    print(f"Warning: Could not save traceability log: {e}")
 
+                self.processing_running = True
+                self.status_var.set("Processing started...")
+                self.progress_var.set(0)
+                
+                # Use a separate thread to avoid freezing the GUI
+                # For simplicity, we're not using threading here, but in a real app you might want to
+                processing_thread = threading.Thread(target=self.process_data, args=(params,))
+                processing_thread.daemon = True
+                processing_thread.start()
+
+
+
+        except Exception as e:
+            messagebox.showerror("Validation Error", str(e))
+
+
+
+    def get_int_or_none(self, val):
+        return int(val) if val and str(val).strip() != "" else None
 
     def edit_segment_params_old(self):
 

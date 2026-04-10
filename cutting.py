@@ -15,7 +15,7 @@ def cut_volume(
     upper: Tuple[int | None, int | None, int | None], 
     keep_original: bool,
     destination_dir: PathLike,
-    localiser : str = "cut" , percents_given: bool = False, input_type : str = "RAS") -> str:
+    localiser : str = "cut" , percents_given: bool = False, input_type : bool = False) -> str:
     """
     Cut a NIfTI volume along x, y, z axes.
 
@@ -76,7 +76,9 @@ def cut_volume(
 
         # 3. Handle LPS Flip (X and Y only)
         # In LPS, the axis is mirrored. Start becomes (Max - End)
-        if input_type == "LPS" and i < 2:
+        input_name = "LPS" if input_type else "RAS"
+        print(i, input_name)
+        if input_type and i < 2:
             final_l = dim_max - u_px
             final_u = dim_max - l_px
         else:

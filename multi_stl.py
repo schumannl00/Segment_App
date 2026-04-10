@@ -237,7 +237,7 @@ def process_single_file(file_info : Tuple[str, str, str | int ], segment_params 
             if use_pymeshfix:
                 try:
                     meshfix = pymeshfix.MeshFix(verts, faces)
-                    meshfix.repair(verbose=False, remove_smallest_components=remove_islands)
+                    meshfix.repair(remove_smallest_components=remove_islands)
                     verts, faces = meshfix.points, meshfix.faces
                     
                     t_mesh = trimesh.Trimesh(vertices=verts, faces=faces, process=False)
@@ -582,61 +582,7 @@ class ParallelSTLProcessor(BaseSurfaceReconstructor):
     def _save_checkpoint(self, path, completed, failed):
         path.write_text(json.dumps({"completed": completed, "failed": failed}, indent=2))
 
-# Example segment parameters
-segment_params_leg = {
-    1: {
-        'label': "Fibula",
-        'smoothing': 0.2,  
-        'mesh_smoothing_method': 'taubin',
-        'mesh_smoothing_iterations': 250,  
-        'mesh_smoothing_factor': 0.1  
-    },
-    2: {
-        'label': "Patella",
-        'smoothing': 0.2,
-        'mesh_smoothing_method': 'taubin',
-        'mesh_smoothing_iterations': 250, 
-        'mesh_smoothing_factor': 0.1  
-    },
-    3: {
-        'label': "Tibia",
-        'smoothing': 0.2,
-        'mesh_smoothing_method': 'taubin',
-        'mesh_smoothing_iterations': 250,  
-        'mesh_smoothing_factor': 0.1
-    },
-    4: {
-        'label': "Femur",
-        'smoothing': 0.2,
-        'mesh_smoothing_method': 'taubin',
-        'mesh_smoothing_iterations': 250,  
-        'mesh_smoothing_factor': 0.1
-    }
-}
 
-segment_ankle = {
-    1: {
-        'label': "Fibula",
-        'smoothing': 1.0,  
-        'mesh_smoothing_method': 'taubin',
-        'mesh_smoothing_iterations': 150,  
-        'mesh_smoothing_factor': 0.1  
-    },
-    2: {
-        'label': "Talus" ,
-        'smoothing': 1.0,
-        'mesh_smoothing_method': 'taubin',
-        'mesh_smoothing_iterations': 150, 
-        'mesh_smoothing_factor': 0.1  
-    },
-    3: {
-        'label': "Tibia",
-        'smoothing': 1.0,
-        'mesh_smoothing_method': 'taubin',
-        'mesh_smoothing_iterations': 150,  
-        'mesh_smoothing_factor': 0.1
-}
-}
 
 
 spinal_params = {
