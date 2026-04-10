@@ -81,7 +81,7 @@ class BaseSurfaceReconstructor(ABC):
     @staticmethod
     @abstractmethod
     def process_file(task: STLTask, config: STLProcessingConfig) -> tuple:
-        """The core Marching Cubes and smoothing logic."""
+        """The core Labelmap to  Mesh conversion and smoothing and repair logic."""
         pass
     
    
@@ -563,7 +563,7 @@ class ParallelSTLProcessor(BaseSurfaceReconstructor):
         for f_name in sorted(os.listdir(self.config.input_dir)):
             if f_name.endswith(".nii.gz") and f_name not in completed_set:
                 input_path = self.config.input_dir / f_name
-                file_num = f_name.split('_')[1].split('.')[0].split("-")[0]
+                file_num = f_name.split('_')[1].split('.')[0].split("-")[0]   #we have e.g. Ank_001-rechts.nii.gz so [0] is the number [1] the side 
                 
                 out_dir = self.config.output_root / f"STL{file_num}"
                 if self.config.split and "-" in f_name:

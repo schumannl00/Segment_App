@@ -14,3 +14,4 @@ __pycache__/
 *$py.class
 continue_single_fold.ps1
 train_all_lora.ps1
+logs/
