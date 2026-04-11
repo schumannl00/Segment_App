@@ -15,7 +15,8 @@ def cut_volume(
     upper: Tuple[int | None, int | None, int | None], 
     keep_original: bool,
     destination_dir: PathLike,
-    localiser : str = "cut" , percents_given: bool = False, input_type : bool = False) -> str:
+    localiser : str = "cut" , percents_given: bool = False, 
+    use_lps : bool = False) -> str:
     """
     Cut a NIfTI volume along x, y, z axes.
 
@@ -76,9 +77,9 @@ def cut_volume(
 
         # 3. Handle LPS Flip (X and Y only)
         # In LPS, the axis is mirrored. Start becomes (Max - End)
-        input_name = "LPS" if input_type else "RAS"
+        input_name = "LPS" if use_lps else "RAS"
         print(i, input_name)
-        if input_type and i < 2:
+        if use_lps and i < 2:
             final_l = dim_max - u_px
             final_u = dim_max - l_px
         else:
@@ -104,7 +105,7 @@ def cut_volume(
         affine[:3, 3] = new_origin[:3]
 
     p = Path(nii_path)
-    out_path = Path(destination_dir)/ f"{p.stem}_{localiser}{''.join(p.suffixes)}"
+    out_path = Path(destination_dir)/ f"{p.stem.split('.')[0]}_{localiser}{''.join(p.suffixes)}"
     img = Nifti1Image(roi, affine=affine)
     print(img.shape)
     save(img, str(out_path))
@@ -194,4 +195,4 @@ def masking(nii_path):
 
 if __name__ == "__main__":
     #sep(r"E:\new cases pat\input\nifti\6118927_Hendrich^Karina_BBA 1.5mm_x, iDose (3).nii.gz", x_cut = 245, destination_dir=r"E:\new cases pat\input\nifti_split")
-    cut_volume(r"E:\test_femur\input\4295737_Krebs^Helga_BBA 1.5mm_x, iDose (3).nii.gz", lower = (None, None, 600), upper = (None, None, 1200), keep_original=True, destination_dir=r"E:\test_femur\input")
+    cut_volume(r"E:\shoulder_reworked\raw\Sch_002_0000.nii.gz", lower = (None, None, 400), upper = (None, None, None), keep_original=True, destination_dir=r"E:\shoulder_reworked\raw_cut", localiser="zcut", percents_given=False, use_lps=False)

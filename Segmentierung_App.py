@@ -888,7 +888,7 @@ class ParameterGUI:
                                     upper=upper_bounds,
                                     keep_original=params.crop.keep_originals, 
                                     destination_dir=cut_path,
-                                    localiser="cut", percents_given=params.crop.use_percent, input_type=params.crop.used_lps
+                                    localiser="cut", percents_given=params.crop.use_percent, use_lps=params.crop.used_lps
                                 )
                         else: 
                                 cut_volume(
@@ -897,7 +897,7 @@ class ParameterGUI:
                                     upper=upper_bounds,
                                     keep_original=params.crop.keep_originals, 
                                     destination_dir=inference_path,
-                                    localiser="cut", percents_given=params.crop.use_percent, input_type=params.crop.used_lps
+                                    localiser="cut", percents_given=params.crop.use_percent, use_lps=params.crop.used_lps
                                 )
                     if params.crop.keep_originals: 
                         inference_path = cut_path
