@@ -14,7 +14,7 @@ import nibabel as nib
 from nibabel.orientations import io_orientation, axcodes2ornt, ornt_transform
 from typing import List, Pattern, Tuple, Set, Dict, Optional 
 from dataclasses import dataclass, field
-from pydantic import BaseModel, Field, DirectoryPath, FilePath, field_validator
+from pydantic import BaseModel, Field, DirectoryPath, FilePath, field_validator, ConfigDict
 from abc import ABC, abstractmethod
 
 
@@ -90,9 +90,7 @@ class NiftiConfig(BaseModel):
 class ConversionTask(BaseModel):
     input_dir: DirectoryPath
     output_path: Path # Not yet a FilePath because it doesn't exist yet
-    
-    class Config:
-        arbitrary_types_allowed = True
+    model_config=ConfigDict(arbitrary_types_allowed = True)
         
         
 class BaseConverter(ABC):

@@ -49,7 +49,7 @@ with open("ids.json", "r") as ids:
 with open("labels.json", "r") as labels:
     labels_dict = json.load(labels)
 from typing import TypedDict, List, Optional, Union, Dict, Any, Set
-from pydantic import BaseModel, Field, EmailStr, DirectoryPath, field_validator
+from pydantic import BaseModel, Field, EmailStr, ConfigDict
 
 # pyright: reportAttributeAccessIssue=false
 # pyright: reportGeneralTypeIssues=false
@@ -103,8 +103,7 @@ class AppParameters(BaseModel):
     # Nested Sub-Config
     crop: CropConfig = Field(default_factory=CropConfig)
 
-    class Config:
-        populate_by_name = True # Allows using both 'ID' and 'dataset_id'
+    model_config = ConfigDict(populate_by_name=True) # Allows using both 'ID' and 'dataset_id'
 
 
 
@@ -526,10 +525,15 @@ class ParameterGUI:
         """Thread function to scan for indicators"""
         try:
             indicators = set()
-            
+            nifti_found : bool = False
             # Walk through directory and find DICOM files
             for root, dirs, files in os.walk(path):
+                if nifti_found:
+                    break
                 for file in files:
+                    if file.endswith(('.nii', '.nii.gz')):
+                        nifti_found = True
+                        break # If a NIFTI is found, stop scanning for DICOM indicators
                     file_path = os.path.join(root, file)
                     try:
                         # Try to read as DICOM
@@ -553,12 +557,12 @@ class ParameterGUI:
             
             
             # Update UI in main thread
-            self.root.after(0, lambda: self.update_indicators_options(sorted(indicators)))
+            self.root.after(0, lambda: self.update_indicators_options(sorted(indicators), nifti_found))
             
         except Exception as e:
             self.root.after(0, lambda: self.status_var.set(f"Error scanning indicators: {str(e)}"))
 
-    def update_indicators_options(self, indicators):
+    def update_indicators_options(self, indicators, nifti_found=False):
         """Update the indicators menu with the scanned indicators"""
         # Clear the menu and selected indicators
         self.dropdown_menu.delete(0, tk.END)
@@ -572,7 +576,20 @@ class ParameterGUI:
                 variable=var,
                 command=lambda ind=indicator: self.toggle_indicator(ind)
             )
-    
+
+        if not indicators and nifti_found:
+            # 1. Toggle the BooleanVar
+            self.input_nifti.set(True)
+            
+            # 2. Show the Toast
+            toast = ToastNotification(
+                title="NIfTI Input Detected",
+                message="No DICOM indicators found, but NIfTI files were detected. 'Use NIFTIs as input' has been auto-enabled.",
+                duration=5000,
+                bootstyle=INFO
+            )
+            toast.show_toast()
+        
     # Update the menubutton text
         self.update_menubutton_text()
         
@@ -1017,10 +1034,10 @@ class ParameterGUI:
                         str(labelmap_output_path),
                         save_probabilities=False,
                         overwrite=False,
-                        num_processes_preprocessing=2,
-                        num_processes_segmentation_export=2,
+                        num_processes_preprocessing=1,
+                        num_processes_segmentation_export=1,
                         folder_with_segs_from_prev_stage=None, num_parts=1, part_id=0)
-                print("nnUNet segmentation done.")
+                print("nnUNet segmentation done.")  #set npp and nps back to 2, after shoulder is done
 
             #Masking after segmentation, should not cause problems in the segmentation is faster and background is 0 for every file 
             

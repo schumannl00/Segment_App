@@ -17,7 +17,7 @@ from functools import partial
 import multiprocessing as mp
 from utils.stl_metadata import calculate_volume_and_surface_area, save_metadata_to_json
 from typing import List, Dict, Tuple, Optional, Union, Any, TypedDict, Literal 
-from pydantic import BaseModel, Field, DirectoryPath, field_validator
+from pydantic import BaseModel, Field, DirectoryPath, field_validator, ConfigDict
 from abc import ABC, abstractmethod
 import time
 
@@ -64,11 +64,11 @@ class STLTask(BaseModel):
     input_file: Path
     output_dir: Path
     file_number: str
-    
-    class Config:
-        arbitrary_types_allowed = True
-    
-    
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+
+
+
+
 class BaseSurfaceReconstructor(ABC):
     def __init__(self, config: STLProcessingConfig):
         self.config = config
