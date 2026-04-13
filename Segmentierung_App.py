@@ -1074,12 +1074,15 @@ class ParameterGUI:
             
             
         except Exception as e:
-            messagebox.showerror("Error", f"An error occurred during processing: {str(e)}")
-            self.status_var.set(f"Error: {str(e)}")
+            
 
             if params.mail: 
                 error_message = f"The nnUNet script failed.\n\nDetails: {str(e)}"
                 send_mail(params.mail, "System Message: nnUNet Script failed", error_message)
+
+            messagebox.showerror("Error", f"An error occurred during processing: {str(e)}")
+            self.status_var.set(f"Error: {str(e)}")
+            self.progress_queue.put(ProgressEvent(100, "Processing failed", error=str(e)))
             return False
         
     def poll_progress_queue(self):
