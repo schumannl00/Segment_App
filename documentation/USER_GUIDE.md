@@ -10,7 +10,6 @@ This application provides an end-to-end pipeline to convert raw medical imaging 
 
 ---
 
-
 ## Folder strcuture 
 
 ```text
@@ -51,10 +50,6 @@ root
 ```
 ---
 
-## How to Use
-
-    
-
 ### 1. Set Up Your Paths
 - **Input Path**: Drag and drop your folder containing DICOM/NIFTI files into the "Input Path" field.
 - **Output Paths**: Set your desired locations for STL files (3D models) and NIfTI labelmaps. If left blank, these default to a subfolder in your input paths parent directory.
@@ -64,7 +59,7 @@ root
 - Choose the **Configuration** (usually `3d_fullres`) and select the **Folds** (default is all 5 for maximum accuracy).
 
 ### 3. Filtering & Preprocessing (Optional)
-- **Scan Indicators**: If your patient folder has multiple scans (Localizers, Dose Reports, Contrast), select only the high-resolution series (e.g., "0.8mm") or use the group filter to filter out specific groups like bone window (KF)]
+- **Scan Indicators**: If your patient folder has multiple scans (Localizers, Dose Reports, Contrast), select only the high-resolution series (e.g., "0.8mm") or use the group filter to filter out specific groups like bone window (KF)
 - **Split X-Axis**: Check this if you are processing bilateral structures (like left/right ankles) and want them separated into different files. 
 - **Crop Volume**: Use this to focus on a specific Region of Interest (ROI). You can input coordinates in **RAS** (Standard) or **LPS** (common in viewers like MicroDicom). Also percentage based input is possible, which is often fine enough. 
 

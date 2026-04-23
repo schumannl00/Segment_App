@@ -123,7 +123,6 @@ https://github.com/MIC-DKFZ/nnUNet
 PyMeshFix Docs: Deep dive into the repair() algorithms. (Cite as well when using.)
 https://github.com/pyvista/pymeshfix
 
-PyVista: Used for the Taubin and Laplacian smoothing implementations.
 https://docs.pyvista.org/index.html
 
 Nibabel: Documentation on handling NIfTI headers and affine matrices.
