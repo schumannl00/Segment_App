@@ -106,7 +106,7 @@ def cut_volume(
 
     p = Path(nii_path)
     out_path = Path(destination_dir)/ f"{p.stem.split('.')[0]}_{localiser}{''.join(p.suffixes)}"
-    img = Nifti1Image(roi, affine=affine)
+    img = Nifti1Image(roi, affine=affine, header = nii.header.copy()) #type: ignore
     print(img.shape)
     save(img, str(out_path))
 
@@ -129,7 +129,7 @@ def sep(nii_path : PathLike, x_cut : int,  destination_dir : PathLike ):
         destination_dir= destination_dir,
         localiser="left"
     )
-    print("right done")
+    print("left done")
     # Left half (array right → anatomy left)
     left_file = cut_volume(
         nii_path=nii_path,
@@ -194,5 +194,6 @@ def masking(nii_path):
 
 
 if __name__ == "__main__":
-    #sep(r"E:\new cases pat\input\nifti\6118927_Hendrich^Karina_BBA 1.5mm_x, iDose (3).nii.gz", x_cut = 245, destination_dir=r"E:\new cases pat\input\nifti_split")
-    cut_volume(r"E:\shoulder_reworked\raw\Sch_002_0000.nii.gz", lower = (None, None, 400), upper = (None, None, None), keep_original=True, destination_dir=r"E:\shoulder_reworked\raw_cut", localiser="zcut", percents_given=False, use_lps=False)
+    sep(r"D:\nnUNet_raw\Dataset214_Schulter\schultern_reworked\NIFTI_cropped\Sch_015_0000.nii.gz", x_cut = 330, destination_dir=r"D:\nnUNet_raw\Dataset214_Schulter\schultern_reworked\NIFTI_cropped_split")
+    sep(r"D:\nnUNet_raw\Dataset214_Schulter\schultern_reworked\final_relabel\Sch_015.nii.gz", x_cut = 330, destination_dir=r"D:\nnUNet_raw\Dataset214_Schulter\schultern_reworked\label_split")
+    #cut_volume(r"E:\shoulder_reworked\raw\Sch_002_0000.nii.gz", lower = (None, None, 400), upper = (None, None, None), keep_original=True, destination_dir=r"E:\shoulder_reworked\raw_cut", localiser="zcut", percents_given=False, use_lps=False)

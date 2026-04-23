@@ -821,7 +821,7 @@ class ParameterGUI:
     
  
 
-    @gui_log_output(get_log_dir_from_args=lambda s, params: Path(params["Input Path"]).parent / "logs")
+    @gui_log_output(get_log_dir_from_args=lambda s, params: params.input_path.parent / "logs")
     def process_data(self, params : AppParameters):
         # just fetch mail first so if stuff goes wrong in the try directly it is at least there for notification, also internal so no hard regex check
         
