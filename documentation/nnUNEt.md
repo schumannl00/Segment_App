@@ -50,7 +50,7 @@
     - use the train_all_folds.ps1 script to start training, make adjustments as needed (so different trainer like the 250 epoch one or so) see the trainer variants folder in nnUNet to see what they have stock in addition to our custom trainers 
   
 <video width="960" height="720" controls>
-  <source src="file:///C:/Users/schum/Desktop/Guide_training_slicer.mp4" type="video/mp4">
+  <source src="file:///C:\Users\Public\Desktop\Guide_training_slicer.mp4" type="video/mp4">
   Your browser does not support the video tag.
 </video>
 

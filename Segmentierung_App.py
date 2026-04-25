@@ -78,6 +78,10 @@ class AppParameters(BaseModel):
     input_path: Path
     stl_output_path: Optional[Path] = None
     labelmap_output_path: Optional[Path] = None
+
+    #Input options 
+    nifti_input: bool = False
+    skip_conversion: bool = False
     
     # Filter/Sort Logic
     scan_indicators: Optional[Set[str]] = Field(default_factory=set)
@@ -89,7 +93,7 @@ class AppParameters(BaseModel):
     dataset_id: str = Field(..., alias="ID") # Maps 'ID' from GUI to 'dataset_id'
     configuration: str = "3d_fullres"
     folds: List[int] = Field(default_factory=lambda: [0, 1, 2, 3, 4])
-    nifti_input: bool = False
+    
     
     # Processing Flags
     split_x_axis: bool = False
@@ -182,6 +186,11 @@ class ParameterGUI:
         # Start progress monitoring
         self.poll_progress_queue()
 
+        self.resume_event = threading.Event()
+        self.resume_event.set()
+
+
+
         # Create main frame with padding
         main_frame = tb.Frame(root, padding="20")
         main_frame.pack(fill=tk.BOTH, expand=True)
@@ -231,13 +240,33 @@ class ParameterGUI:
         labelmap_output_button = ttk.Button(labelmap_output_frame, text="Browse", command=self.browse_labelmap_output, bootstyle= "secondary")
         labelmap_output_button.grid(row=0, column= 1, padx= (5,0))
 
-        # Row 3: Scan Indicators (as set of strings)
-        indicator_frame = tb.LabelFrame(main_frame, text= "Filter out specific scan", padding = "10", bootstyle= WARNING)
-        indicator_frame.grid(row=2, column=0, columnspan=5, sticky=EW, pady=(0,10))
-        indicator_frame.columnconfigure(0, weight=1)
+        #Option for Loading NIFTIs
+        config_input_frame = tb.LabelFrame(main_frame, text= "Input options", padding = "10", bootstyle= WARNING)
+        config_input_frame.grid(row=1, column=0, columnspan=6, sticky=EW, pady=(0,10)) # Use grid in main_frame
+        config_input_frame.columnconfigure(0, weight=1)
+
+        self.input_nifti = tk.BooleanVar(value=False)
+        self.input_nifti_check = tb.Checkbutton(config_input_frame, text= "NIFTIs are used as input, disables conversion. Click Keep originals for cropping otherwise it is destructive.",  variable=self.input_nifti)
+        self.input_nifti_check.grid(row=0, column=0, columnspan=5, sticky = tk.W, pady=(0,10))
+
+        self.skip_conversion = tk.BooleanVar(value=False)
+        self.skip_check = tb.Checkbutton(
+            config_input_frame, 
+            text="Skip NIfTI conversion/renaming (Reuse existing NIFTIs and decoder.json)", 
+            variable=self.skip_conversion,
+            bootstyle="warning"
+        )
+        self.skip_check.grid(row=1, column=0, columnspan=5, sticky=tk.W, pady=(0, 10))
+        ToolTip(self.skip_check, text="This will skip the conversion and renaming steps. It will look for existing NIFTIs and decoder.json in the output folder. Delete the .stl_processing_checkpoint.json and stl_files (or use a new stl folder) and if you want to regenerate them.", bootstyle="warning", delay=200)
+        
+
+        # Scan Indicators (as set of strings)
+        self.indicator_frame = tb.LabelFrame(main_frame, text= "Filter out specific scan", padding = "10", bootstyle= WARNING)
+        self.indicator_frame.grid(row=2, column=0, columnspan=5, sticky=EW, pady=(0,10))
+        self.indicator_frame.columnconfigure(0, weight=1)
 
 
-        tb.Label(indicator_frame, text="Scan Indicators:").grid(row=0, column =0, sticky = W, pady=5, padx = 5)
+        tb.Label(self.indicator_frame, text="Scan Indicators:").grid(row=0, column =0, sticky = W, pady=5, padx = 5)
 
         # Create a StringVar to store the selected indicators
         self.scan_indicators = tk.StringVar()
@@ -245,7 +274,7 @@ class ParameterGUI:
         # Create a set to store the selected indicators
         self.selected_indicators = set()
 
-        indicator_controls_frame = tb.Frame(indicator_frame)
+        indicator_controls_frame = tb.Frame(self.indicator_frame)
         indicator_controls_frame.grid(row=0, column=1, sticky=EW, padx=5, pady=5)
        
         indicator_controls_frame.columnconfigure(0, weight=1) 
@@ -466,14 +495,16 @@ class ParameterGUI:
         self.analytics_check.grid(row=15, column=0, columnspan=1, sticky = tk.W, pady=(0,10))
 
 
-        #Option for Loading NIFTIs
-        config_input_frame = tb.LabelFrame(main_frame, text= "Input options", padding = "10", bootstyle= WARNING)
-        config_input_frame.grid(row=1, column=0, columnspan=6, sticky=EW, pady=(0,10)) # Use grid in main_frame
-        config_input_frame.columnconfigure(0, weight=1)
 
-        self.input_nifti = tk.BooleanVar(value=False)
-        self.input_nifti_check = tb.Checkbutton(config_input_frame, text= "NIFTIs are used as input, disables conversion. Click Keep originals for cropping otherwise it is destructive.",  variable=self.input_nifti)
-        self.input_nifti_check.grid(row=0, column=0, columnspan=5, sticky = tk.W, pady=(0,10))
+
+        self.pause_for_qc = tk.BooleanVar(value=False)
+        self.pause_check = tb.Checkbutton(
+            preprocessing_frame, 
+            text="Pause after conversion and cutting to check cutting, before running nnUNet. (Will show a Resume button at the bottom to continue)", 
+            variable=self.pause_for_qc,
+            bootstyle="warning"
+        )
+        self.pause_check.grid(row=16, column=0, columnspan=1, sticky=tk.W, pady=(0, 10))
 
         # Button frame at the bottom
         button_frame = ttk.Frame(main_frame)
@@ -482,6 +513,11 @@ class ParameterGUI:
         submit_button.pack(side=tk.LEFT, padx=(0, 10))
         clear_button = tb.Button(button_frame, text="Clear", command=self.clear_fields, bootstyle = WARNING)
         clear_button.pack(side=tk.LEFT)
+
+        self.resume_button = tb.Button(button_frame, text="Resume Segmentation", command=self.resume_processing, bootstyle=SECONDARY)
+        
+
+    
 
         # Progress bar for displaying operation progress
         self.progress_var = tk.DoubleVar()
@@ -503,6 +539,13 @@ class ParameterGUI:
 
         self.input_path.trace_add('write', self.schedule_indicator_scanning)
         self.check_filter_activity()
+
+        self.input_nifti.trace_add('write', self.toggle_filtering_block)
+
+    def resume_processing(self):
+        self.resume_event.set()
+        self.resume_button.pack_forget() # Hide it again once clicked
+        self.status_var.set("Resuming...")
 
     def schedule_indicator_scanning(self, *args):
     
@@ -544,12 +587,7 @@ class ParameterGUI:
                             desc = dicom_data.SeriesDescription
                             if desc:
                                 indicators.add(desc)
-                        
-                        # Check for PatientID
-                        elif hasattr(dicom_data, 'PatientID'):
-                            pid = dicom_data.PatientID
-                            if pid:
-                                indicators.add(pid)
+    
                         
                         # Break after finding a few DICOM files with indicators
                     except Exception:
@@ -590,15 +628,18 @@ class ParameterGUI:
             )
             toast.show_toast()
         
-    # Update the menubutton text
+        # Update the menubutton text
         self.update_menubutton_text()
         
         # Update status
         if indicators:
             self.indicators_menu.config(text="Select Indicators")
             self.status_var.set(f"Found {len(indicators)} indicators")
-        else:
-            self.indicators_menu.config(text="No indicators found")
+        elif self.input_nifti.get():
+            self.indicators_menu.config(text="NIFTIS detected")
+            self.status_var.set("No indicators found in the selected directory")
+        else: 
+            self.indicators_menu.config(text="No indicators found (odd)")
             self.status_var.set("No indicators found in the selected directory")
 
     def on_meshfix_toggle(self):
@@ -818,6 +859,42 @@ class ParameterGUI:
             self.status_var.set(message)
         self.root.update_idletasks()  # Update GUI
 
+
+    def toggle_filtering_block(self, *args):
+        """Full visual and functional lockout of the filtering block."""
+        is_nifti = self.input_nifti.get()
+        
+        # 1. Update the Frame Border/Header color
+        new_bootstyle = SECONDARY if is_nifti else WARNING
+        self.indicator_frame.configure(bootstyle=new_bootstyle)
+
+        # 2. Define the target state
+        target_state = "disabled" if is_nifti else "normal"
+        label_color = "grey" if is_nifti else ""
+
+        # 3. Recursive Greyout: Loop through all widgets inside the frame
+        def disable_children(parent):
+            for child in parent.winfo_children():
+                try:
+                    # This grays out the text and prevents interaction
+                    child.configure(state=target_state)
+                except:
+                    # Some widgets (like sub-frames) don't have a 'state'
+                    pass
+                 # Update label color if it's a Label widget
+                if isinstance(child, tb.Label):
+                    child.configure(foreground=label_color)
+                # Continue down the tree to catch nested buttons/entries
+                disable_children(child)
+
+        disable_children(self.indicator_frame)
+        
+        # 4. Update the Menubutton text for clarity
+        if is_nifti:
+            self.indicators_menu.config(text="DICOM filters disabled for NIfTI input")
+        else:
+            self.update_menubutton_text()
+
     
  
 
@@ -831,7 +908,7 @@ class ParameterGUI:
             input_path = params.input_path
             stl_output_path = params.stl_output_path or (input_path.parent / "stl")
             labelmap_output_path = params.labelmap_output_path or (input_path.parent / 'label')
-            
+            decoder_json_path = os.path.join(input_path.parent, 'decoder.json')
             selected_id = params.dataset_id # Uses the field name (aliased from 'ID')
             prefix = id_dict.get(selected_id, {}).get('prefix', "")
             suffix = id_dict.get(selected_id, {}).get('suffix', "")
@@ -851,90 +928,122 @@ class ParameterGUI:
            
             
             
-            
-            if not params.nifti_input: 
-                # Step 1: Convert DICOM to NIfTI 
-                self.progress_queue.put(ProgressEvent(10, "Converting DICOM to NIfTI..."))
-                nifti_config =  NiftiConfig(raw_path = input_path, scans_indicators = scan_indicators, group_filter = group_filter, use_default = use_default, use_only_name = params.name_only)
-                converter = NiftiParallelConverter(nifti_config)
-                converter.run()
-                #raw_data_to_nifti_parallel(nifti_config) 
-                inference_path = os.path.join(str(input_path.parent),r'NIFTI')
-            
-            else: 
-                self.progress_queue.put(ProgressEvent(10, "Starting with NIfTI..."))
-                inference_path = input_path
-            
-            
-            if params.crop.enabled:
-                self.progress_queue.put(ProgressEvent(30, "Processing NIfTI files"))
-                try:
-                    # Helper to convert GUI string inputs to int or None
-                    def get_val(val):
-                        return int(val) if val and str(val).strip() != "" else None
+            if not params.skip_conversion:
+                if not params.nifti_input: 
+                    # Step 1: Convert DICOM to NIfTI 
+                    self.progress_queue.put(ProgressEvent(10, "Converting DICOM to NIfTI..."))
+                    nifti_config =  NiftiConfig(raw_path = input_path, scans_indicators = scan_indicators, group_filter = group_filter, use_default = use_default, use_only_name = params.name_only)
+                    converter = NiftiParallelConverter(nifti_config)
+                    converter.run()
+                    #raw_data_to_nifti_parallel(nifti_config) 
+                    inference_path = os.path.join(str(input_path.parent),r'NIFTI')
+                
+                else: 
+                    self.progress_queue.put(ProgressEvent(10, "Starting with NIfTI..."))
+                    inference_path = input_path
 
-                    # 1. Collect inputs into variables from params
-                    lower_bounds = (params.crop.lower_x, params.crop.lower_y, params.crop.lower_z)
-                    upper_bounds = (params.crop.upper_x, params.crop.upper_y, params.crop.upper_z)
+                if params.crop.enabled:
+                    self.progress_queue.put(ProgressEvent(30, "Processing NIfTI files"))
+                    try:
+                        # Helper to convert GUI string inputs to int or None
+                        def get_val(val):
+                            return int(val) if val and str(val).strip() != "" else None
 
-                    # 2. Validate bounds for all axes
-                    axes_labels = ['x', 'y', 'z']
-                    for i in range(3):
-                        l = lower_bounds[i]
-                        u = upper_bounds[i]
+                        # 1. Collect inputs into variables from params
+                        lower_bounds = (params.crop.lower_x, params.crop.lower_y, params.crop.lower_z)
+                        upper_bounds = (params.crop.upper_x, params.crop.upper_y, params.crop.upper_z)
 
-                        if l is not None and l < 0:
-                            messagebox.showerror("Error", f"Lower bound for {axes_labels[i]}-axis must be non-negative")
-                            return False # Return False to stop processing
+                        # 2. Validate bounds for all axes
+                        axes_labels = ['x', 'y', 'z']
+                        for i in range(3):
+                            l = lower_bounds[i]
+                            u = upper_bounds[i]
 
-                        if l is not None and u is not None:
-                            if l >= u:
-                                messagebox.showerror("Error", f"Upper bound must be greater than lower bound for {axes_labels[i]}-axis")
-                                return False
+                            if l is not None and l < 0:
+                                messagebox.showerror("Error", f"Lower bound for {axes_labels[i]}-axis must be non-negative")
+                                return False # Return False to stop processing
 
-                    # 4. Iterate and process
-                    # Make sure cut_volume is imported from your cutting module!
-                    for filename in os.listdir(inference_path):
-                        full_path = os.path.join(inference_path, filename)
+                            if l is not None and u is not None:
+                                if l >= u:
+                                    messagebox.showerror("Error", f"Upper bound must be greater than lower bound for {axes_labels[i]}-axis")
+                                    return False
+
+                        # 4. Iterate and process
+                        # Make sure cut_volume is imported from your cutting module!
+                        for filename in os.listdir(inference_path):
+                            full_path = os.path.join(inference_path, filename)
+                            if params.crop.keep_originals: 
+                                cut_path = Path(input_path.parent) / "NIFTI_cropped"
+                                if os.path.isfile(full_path) and (filename.endswith('.nii') or filename.endswith('.nii.gz')):
+                                    cut_volume(
+                                        nii_path=full_path,
+                                        lower=lower_bounds,
+                                        upper=upper_bounds,
+                                        keep_original=params.crop.keep_originals, 
+                                        destination_dir=cut_path,
+                                        localiser="cut", percents_given=params.crop.use_percent, use_lps=params.crop.used_lps
+                                    )
+                            else: 
+                                    cut_volume(
+                                        nii_path=full_path,
+                                        lower=lower_bounds,
+                                        upper=upper_bounds,
+                                        keep_original=params.crop.keep_originals, 
+                                        destination_dir=inference_path,
+                                        localiser="cut", percents_given=params.crop.use_percent, use_lps=params.crop.used_lps
+                                    )
                         if params.crop.keep_originals: 
-                            cut_path = Path(input_path.parent) / "NIFTI_cropped"
-                            if os.path.isfile(full_path) and (filename.endswith('.nii') or filename.endswith('.nii.gz')):
-                                cut_volume(
-                                    nii_path=full_path,
-                                    lower=lower_bounds,
-                                    upper=upper_bounds,
-                                    keep_original=params.crop.keep_originals, 
-                                    destination_dir=cut_path,
-                                    localiser="cut", percents_given=params.crop.use_percent, use_lps=params.crop.used_lps
-                                )
-                        else: 
-                                cut_volume(
-                                    nii_path=full_path,
-                                    lower=lower_bounds,
-                                    upper=upper_bounds,
-                                    keep_original=params.crop.keep_originals, 
-                                    destination_dir=inference_path,
-                                    localiser="cut", percents_given=params.crop.use_percent, use_lps=params.crop.used_lps
-                                )
-                    if params.crop.keep_originals: 
-                        inference_path = cut_path
-                            
-                except ValueError:
-                    messagebox.showerror("Error", "Please ensure all coordinates are valid integers.")
-                    return False
-                except Exception as e:
-                    messagebox.showerror("Error", f"The NIFTIs cannot be cut. Details: {str(e)}")
-                    return False
-           
-   
-            self.progress_queue.put(ProgressEvent(40, "Renaming NIfTI files..."))
-            file_mapping = {}
-            for i, folder in enumerate(os.listdir(inference_path)):
-                nifti_renamer(os.path.join(inference_path,folder), prefix=prefix, suffix=suffix, number=i, file_mapping=file_mapping)
-            json_path = os.path.join(input_path.parent, 'decoder.json')
-            with open(json_path, 'w') as json_file:
-                json.dump(file_mapping, json_file, indent=4)
-            print(file_mapping)
+                            inference_path = cut_path
+                                
+                    except ValueError:
+                        messagebox.showerror("Error", "Please ensure all coordinates are valid integers.")
+                        return False
+                    except Exception as e:
+                        messagebox.showerror("Error", f"The NIFTIs cannot be cut. Details: {str(e)}")
+                        return False
+            
+    
+                self.progress_queue.put(ProgressEvent(40, "Renaming NIfTI files..."))
+                file_mapping = {}
+                for i, folder in enumerate(os.listdir(inference_path)):
+                    nifti_renamer(os.path.join(inference_path,folder), prefix=prefix, suffix=suffix, number=i, file_mapping=file_mapping)
+                with open(decoder_json_path, 'w') as json_file:
+                    json.dump(file_mapping, json_file, indent=4)
+                print(file_mapping)
+
+
+                if self.pause_for_qc.get():
+                    self.progress_queue.put(ProgressEvent(45, "PAUSED: Check files, then click Resume."))
+                    
+                    # Show Resume button and open folder via main thread
+                    self.root.after(0, lambda: self.resume_button.pack(side=tk.LEFT, padx=(10, 0)))
+                    import webbrowser
+                    webbrowser.open(str(inference_path)) 
+                    
+                    # Block background thread
+                    self.resume_event.clear()
+                    self.resume_event.wait()
+                    self.progress_queue.put(ProgressEvent(48, "Cuts verified. Resuming..."))
+
+            else: 
+                self.progress_queue.put(ProgressEvent(10, "Skipping conversion. Loading existing mapping..."))
+                
+                # Identify where the NIFTIs are (preferring the cropped folder if it exists)
+                potential_cropped = Path(input_path.parent) / "NIFTI_cropped"
+                potential_standard = Path(input_path.parent) / "NIFTI"
+                inference_path = potential_cropped if potential_cropped.exists() else potential_standard
+                
+                if not os.path.exists(decoder_json_path):
+                    raise FileNotFoundError(f"decoder.json not found at {decoder_json_path}. Cannot reuse names.")
+                
+                with open(decoder_json_path, 'r') as f:
+                    file_mapping = json.load(f)
+                
+                self.status_var.set(f"Reusing files from: {inference_path.name}")
+                
+
+
+
         
             # Step 3: Use nnUNet predictor for segmentation
             self.progress_queue.put(ProgressEvent(50, "Setting up nnUNet predictor..."))
@@ -1207,6 +1316,7 @@ class ParameterGUI:
                 folds=[i for var, i in self.folds_checkbuttons if var.get()],
                 split_x_axis=self.split_nifti_var.get(),
                 name_only=self.just_name.get(),
+                skip_conversion=self.skip_conversion.get(),
                 nifti_input=self.input_nifti.get(),
                 use_meshrepair=self.meshfix_var.get(),
                 remove_islands=self.islands_var.get(),
@@ -1241,7 +1351,7 @@ class ParameterGUI:
                     # We log the error but don't stop processing; 
                     # you could also use a messagebox here if it's critical.
                     print(f"Warning: Could not save traceability log: {e}")
-
+                self.resume_event.set()
                 self.processing_running = True
                 self.status_var.set("Processing started...")
                 self.progress_var.set(0)
