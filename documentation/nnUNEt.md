@@ -34,7 +34,11 @@
     - have your raw data (Dicoms or NIFTI) with the corresponding masks or stls (you can start with 20 train 1 fold and use that to segment the rest and make some small fixes, having 50 or so scans in the end is fine for easy structures go to 200 or so for harder stuff) 
     - variance is more important than amount so include some messy, ugly scans
     - nifti + nifti mask would be ideal but we will go with dicoms + stl from mimics
-    - have your raw files ready and already integrate the model into the app, then run the conversion task from dicom to nifti and kill the app (will make a docker image for the whole process, combines the conversion with the renaming will add name later here)
+    - have your raw files ready and already integrate the model into the app, then run the conversion task from dicom to nifti and kill the app 
+    - **OR** Use docker image: Open Docker desktop, in terminal (either the one in Docker Desktop or normal powershell) run with your specifications (so change paths in the -v tag and the INPUR_DIR ())
+  ```
+  docker run --rm -v "path/to/root_folder:/data" -e INPUT_DIR="/data/folder_with_Dicoms" -e PREFIX="Abc_" schumannl/dicom-nnunet-pipeline:v1   
+  ``` 
     - check decoder.json, sometimes stuff gets mixed around
     - this gives you nnUNet style name for the files
     - use 3D slicer to convert the stls into label maps
@@ -45,7 +49,11 @@
     (This is the all in one solution if you do not plan to change anything in the plans. )
     - use the train_all_folds.ps1 script to start training, make adjustments as needed (so different trainer like the 250 epoch one or so) see the trainer variants folder in nnUNet to see what they have stock in addition to our custom trainers 
   
-**Video/ Screengrab needed ?**
+<video width="960" height="720" controls>
+  <source src="file:///C:/Users/schum/Desktop/Guide_training_slicer.mp4" type="video/mp4">
+  Your browser does not support the video tag.
+</video>
+
 
 ## Advice for custom plans
 
