@@ -194,9 +194,11 @@ class ParameterGUI:
         # Create main frame with padding
         main_frame = tb.Frame(root, padding="20")
         main_frame.pack(fill=tk.BOTH, expand=True)
+        main_frame.columnconfigure(0, weight=1)
         main_frame.columnconfigure(1, weight=1)
+        main_frame.rowconfigure(3, weight=1)
 
-        path_frame= tb.LabelFrame(main_frame, text="Input/Output paths", padding = "10 ", bootstyle= INFO)
+        path_frame= tb.LabelFrame(main_frame, text="Input/Output paths", padding="10", bootstyle=INFO)
         path_frame.grid(row=0, column=0, columnspan=5, sticky = EW, pady=(0,10))
         path_frame.columnconfigure(1, weight=1)
       
@@ -228,7 +230,7 @@ class ParameterGUI:
         stl_output_button = tb.Button(stl_output_frame, text="Browse", command=self.browse_stl_output, bootstyle= "secondary")
         stl_output_button.grid(row=0, column = 1, padx= (5,0 ))
 
-        tb.Label(path_frame, text="nnUNet Labelmap Output Path:").grid(row=2, column=0, sticky=W, pady=(0, 10))
+        tb.Label(path_frame, text="nnUNet Labelmap Output Path:").grid(row=2, column=0, sticky=W, pady=5, padx=5)
         self.labelmap_output_path = tk.StringVar()
         labelmap_output_frame = tb.Frame(path_frame)
         labelmap_output_frame.grid(row=2, column=1, sticky=EW, pady=5, padx= 5)
@@ -257,7 +259,7 @@ class ParameterGUI:
             bootstyle="warning"
         )
         self.skip_check.grid(row=1, column=0, columnspan=5, sticky=tk.W, pady=(0, 10))
-        ToolTip(self.skip_check, text="This will skip the conversion and renaming steps. It will look for existing NIFTIs and decoder.json in the output folder. Delete the .stl_processing_checkpoint.json and stl_files (or use a new stl folder) and if you want to regenerate them.", bootstyle="warning", delay=200)
+        ToolTip(self.skip_check, text="Use the normal dicom folder as input. This will skip the conversion to NIFTI and renaming steps. It will look for existing NIFTIs and decoder.json in the output folder. Delete the .stl_processing_checkpoint.json and stl_files (or use a new stl folder) if you want to regenerate them.", bootstyle="warning", delay=200)
         
 
         # Scan Indicators (as set of strings)
@@ -266,7 +268,7 @@ class ParameterGUI:
         self.indicator_frame.columnconfigure(0, weight=1)
 
 
-        tb.Label(self.indicator_frame, text="Scan Indicators:").grid(row=0, column =0, sticky = W, pady=5, padx = 5)
+        tb.Label(self.indicator_frame, text="Scan Indicators:").grid(row=0, column=0, sticky=W, pady=5, padx=5)
 
         # Create a StringVar to store the selected indicators
         self.scan_indicators = tk.StringVar()
@@ -318,8 +320,8 @@ class ParameterGUI:
 
         # Row 4: Select ID and Configurations
 
-        config_group_frame = tb.LabelFrame(main_frame, text="Details for the segmentation", padding = "10", bootstyle= INFO)
-        config_group_frame.grid(row=3, column=0, columnspan=1, sticky=EW, pady=(0, 5)) # Use grid in main_frame
+        config_group_frame = tb.LabelFrame(main_frame, text="Details for the segmentation", padding="10", bootstyle=INFO)
+        config_group_frame.grid(row=3, column=0, sticky=NSEW, pady=(0, 5))
         config_group_frame.columnconfigure(1, weight=1)
 
 
@@ -332,7 +334,7 @@ class ParameterGUI:
         id_combobox.grid(row=0, column=1, sticky=W, pady=5, padx = 5)
         id_combobox.bind("<<ComboboxSelected>>", self.update_configurations)
         
-        tb.Label(config_group_frame, text="Dataset name:").grid(row=1, column=0, sticky=tk.W, pady=(0, 10))
+        tb.Label(config_group_frame, text="Dataset name:").grid(row=1, column=0, sticky=tk.W, pady=5, padx=5)
         self.datasetname = tk.StringVar()
         self.datasetname.trace_add('write', self.on_namechange)
         self.datasetname.set("Select Name.")
@@ -343,13 +345,13 @@ class ParameterGUI:
 
         
 
-        tb.Label(config_group_frame, text="Configuration:").grid(row=2, column=0, sticky=tk.W, pady=(0, 10))
+        tb.Label(config_group_frame, text="Configuration:").grid(row=2, column=0, sticky=tk.W, pady=5, padx=5)
         self.config_var = tk.StringVar()
         self.config_combobox = tb.Combobox(config_group_frame, textvariable=self.config_var, width=40)
         self.config_combobox.grid(row=2, column=1, sticky=tk.W, padx = 5, pady = 5)
 
         # Row 5: Folds (check boxes)
-        tb.Label(config_group_frame, text="Folds:").grid(row=3, column=0, sticky=tk.W, pady=(0, 10))
+        tb.Label(config_group_frame, text="Folds:").grid(row=3, column=0, sticky=tk.W, pady=5, padx=5)
         self.folds_frame = tb.Frame(config_group_frame)
         self.folds_frame.grid(row=3, column=1, sticky=EW, pady=10, padx = 5)
         self.folds_var = tk.StringVar(value="0,1,2,3,4")  # Default value of 5 folds
@@ -368,15 +370,15 @@ class ParameterGUI:
         separator = tb.Separator(config_group_frame, orient="horizontal")
         separator.grid(row=4, column=0, columnspan=2, sticky="ew", pady=15)
 
-        tb.Label(config_group_frame, text="Mail:").grid(row=5, column=0, sticky=tk.W, pady=(0, 10))
+        tb.Label(config_group_frame, text="Mail:").grid(row=5, column=0, sticky=tk.W, pady=5, padx=5)
         self.mail_var = tk.StringVar()
         self.mail_input = tb.Entry(config_group_frame, textvariable=self.mail_var, width = 40, )
         self.mail_input.grid(row=5, column = 1, sticky= tk.W, padx=5, pady =5 )
 
        #Processing
     
-        preprocessing_frame = tb.LabelFrame(main_frame, text="Processing Options", padding = "10", bootstyle= INFO)
-        preprocessing_frame.grid(row=3, column=1, columnspan=3, sticky=EW, pady=(0, 5), padx=5) # Use grid in main_frame
+        preprocessing_frame = tb.LabelFrame(main_frame, text="Processing Options", padding="10", bootstyle=INFO)
+        preprocessing_frame.grid(row=3, column=1, columnspan=3, sticky=NSEW, pady=(0, 5), padx=(5, 0))
         preprocessing_frame.columnconfigure(1, weight=1)
 
 
@@ -401,13 +403,21 @@ class ParameterGUI:
         self.cut_entries = []
 
 
+        # --- 1. Main Container for Cutting Section ---
+        cutting_section_container = tb.Frame(preprocessing_frame)
+        cutting_section_container.grid(row=5, column=0, columnspan=3, sticky=tk.W, pady=10)
+
+        # --- 2. LEFT SIDE: Checkbuttons & Tooltips ---
+        options_frame = tb.Frame(cutting_section_container)
+        options_frame.pack(side=tk.LEFT, anchor=tk.N, padx=(0, 30))
+
         enable_checkbox = tb.Checkbutton(
-            preprocessing_frame, 
+            options_frame, 
             text="Cut Volume (Crop)",
             variable=self.enable_cut,
             command=self.toggle_cut_inputs
         )
-        enable_checkbox.grid(row=5, column=0, sticky="w", pady=5)
+        enable_checkbox.pack(anchor=tk.W, pady=(0, 15))
         
         help_text_cutting = (
             "Cropping Guide for (RAS+ System):\n"
@@ -420,61 +430,68 @@ class ParameterGUI:
             "So be aware of what system you used and what you cut by doing so.\n"
             "If using %, 0 is start of image, 100 is end."
         )
-        ToolTip(enable_checkbox, text=help_text_cutting, delay=200, bootstyle="info", position= "top" )
+        ToolTip(enable_checkbox, text=help_text_cutting, delay=200, bootstyle="info", position="top")
+
+        # Indent sub-options slightly using padx
         self.keep_originals_checkbox = tb.Checkbutton(
-            preprocessing_frame, 
+            options_frame, 
             text="Keep originals", 
             variable=self.keep_originals, 
             state="disabled"
         )
-        self.keep_originals_checkbox.grid(row=6, column=0, columnspan=1, sticky="w", pady=0, padx=(40,10))
+        self.keep_originals_checkbox.pack(anchor=tk.W, pady=8, padx=(20, 0))
 
         self.percent_checkbox = tb.Checkbutton(
-            preprocessing_frame, 
+            options_frame, 
             text="Use Percentages", 
             variable=self.use_percent, 
             state="disabled" 
-            
         )
-        self.percent_checkbox.grid(row=7, column=0, columnspan=1, sticky="w", pady=0, padx=(40,10))
+        self.percent_checkbox.pack(anchor=tk.W, pady=8, padx=(20, 0))
         ToolTip(self.percent_checkbox, text="Use Integers not Decimals for input, so 10 instead of 0.1.", bootstyle="warning")
 
-
         self.LPS_checkbox = tb.Checkbutton(
-            preprocessing_frame, 
+            options_frame, 
             text="Use LPS Coordinates to cut.", 
             variable=self.used_lps, 
             state="disabled"  
         )
-        self.LPS_checkbox.grid(row=8, column=0, columnspan=1, sticky="w", pady=0, padx=(40,10))
+        self.LPS_checkbox.pack(anchor=tk.W, pady=8, padx=(20, 0))
         ToolTip(self.LPS_checkbox, text="If you used e.g. MicroDicom to check the images. They are in LPS so X and Y are flipped for our case. It handles the conversion. Ignore the other help statement as now X and Y are flipped.", delay=200, bootstyle="info", position="bottom")
 
-        # --- Column Headers (Row 1) ---
-        # Visual helper to tell user which column is which
-        ttk.Label(preprocessing_frame, text="Lower Bound").grid(row=5, column=1, padx=5, pady=2, sticky="w")
-        ttk.Label(preprocessing_frame, text="Upper Bound").grid(row=5, column=1, padx=15, pady=2, )
+        # --- 3. RIGHT SIDE: Axis Entries ---
+        coords_frame = tb.Frame(cutting_section_container)
+        coords_frame.pack(side=tk.LEFT, anchor=tk.N)
 
-        # --- Axis Rows (Rows 2, 3, 4) ---
+        # Column Headers
+        ttk.Label(coords_frame, text="Axis").grid(row=0, column=0, padx=5, pady=2, sticky="w")
+        ttk.Label(coords_frame, text="Lower Bound").grid(row=0, column=1, padx=5, pady=2, sticky="w")
+        ttk.Label(coords_frame, text="Upper Bound").grid(row=0, column=2, padx=15, pady=2)
+
         axes_settings = [
-            ("X-Axis:", self.lower_x, self.upper_x, 2),
-            ("Y-Axis:", self.lower_y, self.upper_y, 3),
-            ("Z-Axis:", self.lower_z, self.upper_z, 4),
+            ("X-Axis:", self.lower_x, self.upper_x, 1),
+            ("Y-Axis:", self.lower_y, self.upper_y, 2),
+            ("Z-Axis:", self.lower_z, self.upper_z, 3),
         ]
 
         for label_text, low_var, up_var, row_idx in axes_settings:
             # Axis Label
-            ttk.Label(preprocessing_frame, text=label_text).grid(row=row_idx+4, column=0, sticky="e", padx=(250,10), pady=2)
+            ttk.Label(coords_frame, text=label_text).grid(row=row_idx, column=0, sticky="w", padx=5, pady=2)
             
             # Lower Entry
-            entry_l = tb.Entry(preprocessing_frame, textvariable=low_var, width=10, state="disabled")
-            entry_l.grid(row=row_idx+4, column=1, padx=5, pady=2, sticky="w")
+            entry_l = tb.Entry(coords_frame, textvariable=low_var, width=10, state="disabled")
+            entry_l.grid(row=row_idx, column=1, padx=5, pady=2, sticky="w")
             self.cut_entries.append(entry_l)
             
             # Upper Entry
-            entry_u = tb.Entry(preprocessing_frame, textvariable=up_var, width=10, state="disabled")
-            entry_u.grid(row=row_idx+4, column=1, padx=5, pady=2)
+            entry_u = tb.Entry(coords_frame, textvariable=up_var, width=10, state="disabled")
+            entry_u.grid(row=row_idx, column=2, padx=5, pady=2)
             self.cut_entries.append(entry_u)
+        self.toggle_cut_inputs()
 
+        
+
+        #end of cutting     
    
         self.just_name = tk.BooleanVar(value=True)
         self.just_name_check =tb.Checkbutton(preprocessing_frame, text="Just use the name for the folders/names, safe if IDs are messy with timescodes etc.", variable=self.just_name)
@@ -493,9 +510,6 @@ class ParameterGUI:
         self.analytics_var = tk.BooleanVar(value=False)
         self.analytics_check = tb.Checkbutton(preprocessing_frame, text= "Run HU analytics",  variable=self.analytics_var)
         self.analytics_check.grid(row=15, column=0, columnspan=1, sticky = tk.W, pady=(0,10))
-
-
-
 
         self.pause_for_qc = tk.BooleanVar(value=False)
         self.pause_check = tb.Checkbutton(
@@ -526,10 +540,7 @@ class ParameterGUI:
         
         # Segment parameters editing window
         self.segment_params_button = tb.Button(button_frame, text="Edit Segment Params", command=self.edit_segment_params)
-        self.segment_params_button.pack(side=tk.LEFT, padx = (10,0))
-
-        # Configure grid to expand with window resizing
-        main_frame.columnconfigure(1, weight=1)
+        self.segment_params_button.pack(side=tk.LEFT, padx=(10, 0))
 
         # Status bar at bottom of window
         self.status_var = tk.StringVar()
@@ -666,17 +677,29 @@ class ParameterGUI:
             self.check_filter_activity()
 
     def toggle_cut_inputs(self):
-        """Enable or disable all cutting inputs based on the main checkbox."""
-        # Determine state based on the checkbox
-        state = "normal" if self.enable_cut.get() else "disabled"
+        """Enable or disable all cutting inputs based on the main checkbox, including visual greyout."""
+        is_enabled = self.enable_cut.get()
+        target_state = "normal" if is_enabled else "disabled"
         
-        # Toggle the 'Keep Originals' checkbox
-        self.keep_originals_checkbox.configure(state=state)
-        self.percent_checkbox.configure(state=state)
-        self.LPS_checkbox.configure(state=state)
-        # Toggle all Entry widgets
+        # Use standard theme color when active, force grey when disabled
+        text_color = "" if is_enabled else "grey" 
+        
+        # 1. Toggle the Checkbuttons
+        checkboxes = [self.keep_originals_checkbox, self.percent_checkbox, self.LPS_checkbox]
+        for cb in checkboxes:
+            cb.configure(state=target_state)
+            
+        # 2. Toggle the Entry widgets
         for entry in self.cut_entries:
-            entry.configure(state=state)
+            entry.configure(state=target_state)
+            
+        # 3. Dynamically find the coordinates frame and grey out its text labels
+        if self.cut_entries:
+            coords_frame = self.cut_entries[0].master # Grabs the frame holding the entries
+            for child in coords_frame.winfo_children():
+                # Fade out both ttk.Label and tb.Label
+                if isinstance(child, (ttk.Label, tb.Label)):
+                    child.configure(foreground=text_color)
 
     def add_custom_indicator(self):
         """
@@ -826,6 +849,7 @@ class ParameterGUI:
         """Select all folds in the fold checkboxes"""
         for var, i in self.folds_checkbuttons:
             var.set(True)
+            
     def deselect_all_folds(self):
         for var, i in self.folds_checkbuttons:
             var.set(False)
@@ -945,7 +969,7 @@ class ParameterGUI:
                 if params.crop.enabled:
                     self.progress_queue.put(ProgressEvent(30, "Processing NIfTI files"))
                     try:
-                        # Helper to convert GUI string inputs to int or None
+                        # Helper to convert GUI string inputs to int or None, should not be needed anymore after switching to pydantic validation, but keeping for safety and to ensure empty strings are treated as None
                         def get_val(val):
                             return int(val) if val and str(val).strip() != "" else None
 
@@ -969,7 +993,6 @@ class ParameterGUI:
                                     return False
 
                         # 4. Iterate and process
-                        # Make sure cut_volume is imported from your cutting module!
                         for filename in os.listdir(inference_path):
                             full_path = os.path.join(inference_path, filename)
                             if params.crop.keep_originals: 

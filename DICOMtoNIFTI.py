@@ -315,6 +315,9 @@ def DICOM_splitter(path : str | Path , max_workers : int = 32, use_only_name : b
     return sort_dir, nifti_out_dir
 
 
+
+#The following functions are the old mplementation of the conversion, we keep it for now as it may be easier to grasp for beginners 
+
 # --- Helper function for converting a single series ---
 def convert_single_series_to_nifti(input_dir_path : str | Path, output_nifti_path : str | Path ) -> Tuple[str, bool, str]:
     """Converts a single directory of DICOM series to a NIFTI file."""

@@ -54,6 +54,11 @@ root
 - **Input Path**: Drag and drop your folder containing DICOM/NIFTI files into the "Input Path" field.
 - **Output Paths**: Set your desired locations for STL files (3D models) and NIfTI labelmaps. If left blank, these default to a subfolder in your input paths parent directory.
 
+#### 1.1 Input Options 
+If NIFTIs are in the input folder it autodetects them and toggles the button and disables filtering. 
+The second button is for reruns with e.g. different smoothing parameters or just for the HU if that was forgotten. It is also be possible to run with different model as the numbers matter not the prefix, but use a new folder for labelmaps and stls in that case and **delete** the stl_processing_checkpoint.json file. 
+
+
 ### 2. Select Your Model (Dataset ID)
 - Choose the appropriate **Dataset ID** (e.g., `111` for Ankle) or use the **Dataset Name** dropdown to select by body part.
 - Choose the **Configuration** (usually `3d_fullres`) and select the **Folds** (default is all 5 for maximum accuracy).
